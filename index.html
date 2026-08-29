@@ -64,7 +64,13 @@
 
     <section id="dashboard" class="page active">
 
-      <h1>Dashboard</h1>
+      <div class="page-head dashboard-head">
+        <div>
+          <h1>Dashboard</h1>
+          <p>Overview of your WOGE orders and payments.</p>
+        </div>
+        <button class="gold-btn print-btn" onclick="printDashboardReport()">🖨 Print / Save PDF</button>
+      </div>
 
       <div class="cards" id="dashCards"></div>
 
@@ -187,6 +193,8 @@
         <input
           type="date"
           id="dailyDate"
+              onclick="this.showPicker && this.showPicker()"
+              onfocus="this.showPicker && this.showPicker()"
           onchange="renderDaily()"
         >
 
@@ -223,6 +231,8 @@
         <input
           type="date"
           id="weekDate"
+              onclick="this.showPicker && this.showPicker()"
+              onfocus="this.showPicker && this.showPicker()"
           onchange="renderWeekly()"
         >
 
@@ -316,6 +326,14 @@
             placeholder="Enter product name"
           >
 
+          <input
+            id="newProductPrice"
+            type="number"
+            min="0"
+            step="0.01"
+            placeholder="Product price (₹)"
+          >
+
           <button
             class="gold-btn"
             onclick="addProduct()">
@@ -397,6 +415,8 @@
 
             <input
               id="orderDate"
+              onclick="this.showPicker && this.showPicker()"
+              onfocus="this.showPicker && this.showPicker()"
               type="date"
               required
             >
@@ -469,14 +489,33 @@
 
 
 
-          <!-- RATE -->
+          <!-- PRODUCT PRICE -->
 
           <label>
 
-            Rate
+            Product Price
 
             <input
               id="rate"
+              type="number"
+              readonly
+              min="0"
+              step="0.01"
+              required
+            >
+
+          </label>
+
+
+
+          <!-- FINAL PRICE -->
+
+          <label>
+
+            Final Price
+
+            <input
+              id="finalPrice"
               type="number"
               min="0"
               step="0.01"
@@ -566,6 +605,8 @@
 
             <input
               id="deliveryDate"
+              onclick="this.showPicker && this.showPicker()"
+              onfocus="this.showPicker && this.showPicker()"
               type="date"
             >
 
