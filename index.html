@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>WOGE Order Manager</title>
+
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+  <!-- TOP HEADER -->
+  <header class="topbar">
+
+    <div class="brand-area">
+      <div class="brand">WORD OF GOD ENTERPRISES</div>
+      <div class="subtitle">WOGE ORDER MANAGER</div>
+    </div>
+
+    <button class="gold-btn" onclick="openOrder()">
+      + New Order
+    </button>
+
+  </header>
+
+
+  <!-- NAVIGATION -->
+  <nav class="tabs">
+
+    <button class="tab active" data-page="dashboard">
+      Dashboard
+    </button>
+
+    <button class="tab" data-page="orders">
+      Orders
+    </button>
+
+    <button class="tab" data-page="daily">
+      Daily
+    </button>
+
+    <button class="tab" data-page="weekly">
+      Weekly
+    </button>
+
+    <button class="tab" data-page="monthly">
+      Monthly
+    </button>
+
+    <button class="tab" data-page="products">
+      Products
+    </button>
+
+  </nav>
+
+
+  <!-- MAIN CONTENT -->
+  <main>
+
+
+    <!-- ================= DASHBOARD ================= -->
+
+    <section id="dashboard" class="page active">
+
+      <h1>Dashboard</h1>
+
+      <div class="cards" id="dashCards"></div>
+
+      <div class="panel">
+
+        <div class="panel-head">
+
+          <h2>Recent Orders</h2>
+
+          <button
+            class="small-btn"
+            onclick="showPage('orders')">
+            View All
+          </button>
+
+        </div>
+
+        <div id="recentOrders"></div>
+
+      </div>
+
+    </section>
+
+
+
+    <!-- ================= ORDERS ================= -->
+
+    <section id="orders" class="page">
+
+      <div class="page-head">
+
+        <div>
+
+          <h1>Orders</h1>
+
+          <p>
+            Search, filter and manage every order.
+          </p>
+
+        </div>
+
+        <button
+          class="gold-btn"
+          onclick="openOrder()">
+          + New Order
+        </button>
+
+      </div>
+
+
+      <div class="filters">
+
+        <input
+          id="search"
+          type="text"
+          placeholder="Search order, customer or mobile"
+          oninput="renderOrders()"
+        >
+
+
+        <select
+          id="statusFilter"
+          onchange="renderOrders()">
+
+          <option value="">
+            All Order Status
+          </option>
+
+        </select>
+
+
+        <select
+          id="paymentFilter"
+          onchange="renderOrders()">
+
+          <option value="">
+            All Payment Status
+          </option>
+
+          <option>Paid</option>
+
+          <option>Partially Paid</option>
+
+          <option>Unpaid</option>
+
+          <option>Pay on Delivery</option>
+
+        </select>
+
+      </div>
+
+
+      <div class="panel">
+
+        <div id="ordersTable"></div>
+
+      </div>
+
+    </section>
+
+
+
+    <!-- ================= DAILY ================= -->
+
+    <section id="daily" class="page">
+
+      <div class="page-head">
+
+        <div>
+
+          <h1>Daily Orders</h1>
+
+          <p>
+            View orders for a selected date.
+          </p>
+
+        </div>
+
+
+        <input
+          type="date"
+          id="dailyDate"
+          onchange="renderDaily()"
+        >
+
+      </div>
+
+
+      <div class="panel">
+
+        <div id="dailyTable"></div>
+
+      </div>
+
+    </section>
+
+
+
+    <!-- ================= WEEKLY ================= -->
+
+    <section id="weekly" class="page">
+
+      <div class="page-head">
+
+        <div>
+
+          <h1>Weekly Summary</h1>
+
+          <p>
+            Order and sales performance for the selected week.
+          </p>
+
+        </div>
+
+
+        <input
+          type="date"
+          id="weekDate"
+          onchange="renderWeekly()"
+        >
+
+      </div>
+
+
+      <div
+        class="cards"
+        id="weeklyCards">
+      </div>
+
+
+      <div class="panel">
+
+        <div id="weeklyTable"></div>
+
+      </div>
+
+    </section>
+
+
+
+    <!-- ================= MONTHLY ================= -->
+
+    <section id="monthly" class="page">
+
+      <div class="page-head">
+
+        <div>
+
+          <h1>Monthly Summary</h1>
+
+          <p>
+            Monthly orders, sales, advances and outstanding.
+          </p>
+
+        </div>
+
+
+        <input
+          type="month"
+          id="monthDate"
+          onchange="renderMonthly()"
+        >
+
+      </div>
+
+
+      <div
+        class="cards"
+        id="monthlyCards">
+      </div>
+
+
+      <div class="panel">
+
+        <div id="monthlyTable"></div>
+
+      </div>
+
+    </section>
+
+
+
+    <!-- ================= PRODUCTS ================= -->
+
+    <section id="products" class="page">
+
+      <div class="page-head">
+
+        <div>
+
+          <h1>Products</h1>
+
+          <p>
+            Products available in the Order Product dropdown.
+          </p>
+
+        </div>
+
+      </div>
+
+
+      <div class="panel">
+
+        <div class="inline-form">
+
+          <input
+            id="newProduct"
+            type="text"
+            placeholder="Enter product name"
+          >
+
+          <button
+            class="gold-btn"
+            onclick="addProduct()">
+            Add Product
+          </button>
+
+        </div>
+
+
+        <div id="productList"></div>
+
+      </div>
+
+    </section>
+
+  </main>
+
+
+
+  <!-- ================= ORDER MODAL ================= -->
+
+  <div
+    id="modal"
+    class="modal hidden">
+
+
+    <div class="modal-box">
+
+
+      <div class="modal-head">
+
+        <h2 id="modalTitle">
+          New Order
+        </h2>
+
+
+        <button
+          onclick="closeModal()">
+          ×
+        </button>
+
+      </div>
+
+
+
+      <form id="orderForm">
+
+
+        <input
+          type="hidden"
+          id="editId"
+        >
+
+
+        <div class="form-grid">
+
+
+          <!-- ORDER NUMBER -->
+
+          <label>
+
+            Order Number
+
+            <input
+              id="orderNo"
+              type="text"
+              readonly
+            >
+
+          </label>
+
+
+
+          <!-- DATE -->
+
+          <label>
+
+            Date
+
+            <input
+              id="orderDate"
+              type="date"
+              required
+            >
+
+          </label>
+
+
+
+          <!-- CUSTOMER -->
+
+          <label>
+
+            Customer Name
+
+            <input
+              id="customer"
+              type="text"
+              required
+            >
+
+          </label>
+
+
+
+          <!-- MOBILE -->
+
+          <label>
+
+            Mobile Number
+
+            <input
+              id="mobile"
+              type="tel"
+            >
+
+          </label>
+
+
+
+          <!-- PRODUCT -->
+
+          <label>
+
+            Product
+
+            <select
+              id="product"
+              required>
+            </select>
+
+          </label>
+
+
+
+          <!-- QUANTITY -->
+
+          <label>
+
+            Quantity
+
+            <input
+              id="qty"
+              type="number"
+              min="1"
+              value="1"
+              required
+            >
+
+          </label>
+
+
+
+          <!-- RATE -->
+
+          <label>
+
+            Rate
+
+            <input
+              id="rate"
+              type="number"
+              min="0"
+              step="0.01"
+              required
+            >
+
+          </label>
+
+
+
+          <!-- TOTAL -->
+
+          <label>
+
+            Total Amount
+
+            <input
+              id="total"
+              type="number"
+              min="0"
+              step="0.01"
+              required
+            >
+
+          </label>
+
+
+
+          <!-- ADVANCE -->
+
+          <label>
+
+            Advance Paid
+
+            <input
+              id="advance"
+              type="number"
+              min="0"
+              step="0.01"
+              value="0"
+            >
+
+          </label>
+
+
+
+          <!-- PAYMENT STATUS -->
+
+          <label>
+
+            Payment Status
+
+            <select id="paymentStatus">
+
+              <option>Paid</option>
+
+              <option>Partially Paid</option>
+
+              <option>Unpaid</option>
+
+              <option>Pay on Delivery</option>
+
+            </select>
+
+          </label>
+
+
+
+          <!-- ORDER STATUS -->
+
+          <label>
+
+            Order Status
+
+            <select id="orderStatus">
+            </select>
+
+          </label>
+
+
+
+          <!-- DELIVERY DATE -->
+
+          <label>
+
+            Delivery Date
+
+            <input
+              id="deliveryDate"
+              type="date"
+            >
+
+          </label>
+
+
+
+          <!-- PAYMENT METHOD -->
+
+          <label>
+
+            Payment Method
+
+            <select id="paymentMethod">
+
+              <option>Cash</option>
+
+              <option>UPI</option>
+
+              <option>Bank Transfer</option>
+
+              <option>Card</option>
+
+              <option>Other</option>
+
+            </select>
+
+          </label>
+
+
+
+          <!-- DELIVERY TYPE -->
+
+          <label>
+
+            Delivery Type
+
+            <select id="deliveryType">
+
+              <option>Pickup</option>
+
+              <option>Local Delivery</option>
+
+              <option>Courier</option>
+
+              <option>Transport</option>
+
+            </select>
+
+          </label>
+
+
+        </div>
+
+
+
+        <!-- NOTES -->
+
+        <label>
+
+          Notes
+
+          <textarea
+            id="notes"
+            rows="3">
+          </textarea>
+
+        </label>
+
+
+
+        <!-- BALANCE -->
+
+        <div class="balance-box">
+
+          Balance Due:
+
+          <strong id="balancePreview">
+            ₹0.00
+          </strong>
+
+        </div>
+
+
+
+        <!-- BUTTONS -->
+
+        <div class="modal-actions">
+
+          <button
+            type="button"
+            class="small-btn"
+            onclick="closeModal()">
+            Cancel
+          </button>
+
+
+          <button
+            type="submit"
+            class="gold-btn">
+            Save Order
+          </button>
+
+        </div>
+
+
+      </form>
+
+    </div>
+
+  </div>
+
+
+
+  <!-- JAVASCRIPT -->
+
+  <script src="app.js"></script>
+
+</body>
+</html>
