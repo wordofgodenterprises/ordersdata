@@ -7,6 +7,27 @@
   <title>WOGE Order Manager</title>
 
   <link rel="stylesheet" href="style.css">
+
+  <style id="woge-upgrade-styles">
+    /* WOGE readability + professional controls */
+    body { font-size: 16px !important; }
+    h1 { font-size: 32px !important; font-weight: 800 !important; }
+    h2 { font-size: 22px !important; font-weight: 800 !important; }
+    p, label, input, select, textarea, button, th, td { font-size: 15px !important; }
+    label { font-weight: 700 !important; }
+    .gold-btn { font-size: 15px !important; font-weight: 800 !important; padding: 11px 18px !important; }
+    .small-btn { font-size: 14px !important; font-weight: 700 !important; }
+    input, select, textarea { font-weight: 600 !important; min-height: 42px; }
+    input[type="date"] { cursor: pointer !important; }
+    .price-help { font-size: 12px; opacity: .7; margin-top: 3px; }
+    .dashboard-actions { display:flex; gap:10px; align-items:center; }
+    @media (max-width: 800px) {
+      h1 { font-size: 27px !important; }
+      h2 { font-size: 19px !important; }
+      p, label, input, select, textarea, button, th, td { font-size: 14px !important; }
+    }
+  </style>
+
 </head>
 
 <body>
@@ -64,12 +85,15 @@
 
     <section id="dashboard" class="page active">
 
-      <div class="page-head dashboard-head">
+      <div class="page-head">
         <div>
           <h1>Dashboard</h1>
-          <p>Overview of your WOGE orders and payments.</p>
+          <p>WOGE Order Manager overview and daily order summary.</p>
         </div>
-        <button class="gold-btn print-btn" onclick="printDashboardReport()">🖨 Print / Save PDF</button>
+        <div class="dashboard-actions">
+          <button class="small-btn" type="button" onclick="printDashboardReport()">🖨 Print / Save PDF</button>
+          <button class="gold-btn" type="button" onclick="openOrder()">+ New Order</button>
+        </div>
       </div>
 
       <div class="cards" id="dashCards"></div>
@@ -193,8 +217,6 @@
         <input
           type="date"
           id="dailyDate"
-              onclick="this.showPicker && this.showPicker()"
-              onfocus="this.showPicker && this.showPicker()"
           onchange="renderDaily()"
         >
 
@@ -231,8 +253,6 @@
         <input
           type="date"
           id="weekDate"
-              onclick="this.showPicker && this.showPicker()"
-              onfocus="this.showPicker && this.showPicker()"
           onchange="renderWeekly()"
         >
 
@@ -326,14 +346,6 @@
             placeholder="Enter product name"
           >
 
-          <input
-            id="newProductPrice"
-            type="number"
-            min="0"
-            step="0.01"
-            placeholder="Product price (₹)"
-          >
-
           <button
             class="gold-btn"
             onclick="addProduct()">
@@ -415,8 +427,6 @@
 
             <input
               id="orderDate"
-              onclick="this.showPicker && this.showPicker()"
-              onfocus="this.showPicker && this.showPicker()"
               type="date"
               required
             >
@@ -498,17 +508,17 @@
             <input
               id="rate"
               type="number"
-              readonly
               min="0"
               step="0.01"
               required
             >
+            <span class="price-help">Standard product price</span>
 
           </label>
 
 
 
-          <!-- FINAL PRICE -->
+          <!-- FINAL / GIVEN PRICE -->
 
           <label>
 
@@ -521,6 +531,7 @@
               step="0.01"
               required
             >
+            <span class="price-help">Enter discounted/given price</span>
 
           </label>
 
@@ -605,8 +616,6 @@
 
             <input
               id="deliveryDate"
-              onclick="this.showPicker && this.showPicker()"
-              onfocus="this.showPicker && this.showPicker()"
               type="date"
             >
 
@@ -730,7 +739,7 @@
 
 <!-- WOGE APPLICATION -->
 
-<script src="app.js"></script>
+<script src="app.js?v=20260829-03"></script>
 
 </body>
 </html>
