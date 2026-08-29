@@ -63,6 +63,48 @@ const DELIVERY_TYPES = [
 ];
 
 
+const DEFAULT_PRODUCT_PRICES = {
+  "Huge Premium LED Podium": 65000,
+  "Premium LED Podium": 58500,
+  "Double SS Piped Podium": 22500,
+  "Single SS Piped Podium": 20000,
+  "Small Curved Podium": 15999,
+  "Acrylic Curved Steel Piped Podium": 35000,
+  "Vast Acrylic Piped Premium Podium": 40000,
+  "Premium X Medium Podium": 40000,
+  "Gold Steel Podium – White Top & Base": 25000,
+  "Black Steel Podium": 24000,
+  "Steel Podium – White Top & Base": 23000,
+  "Basic LED Podium": 26500,
+  "Basic Podium": 22500
+};
+
+const CUSTOM_PRODUCT_PRICES_KEY = "WOGE_CUSTOM_PRODUCT_PRICES_V1";
+
+function getCustomProductPrices() {
+  try {
+    return JSON.parse(localStorage.getItem(CUSTOM_PRODUCT_PRICES_KEY) || "{}");
+  } catch (error) {
+    return {};
+  }
+}
+
+function getProductPrice(name) {
+  const custom = getCustomProductPrices();
+  if (Object.prototype.hasOwnProperty.call(custom, name)) {
+    return Number(custom[name]) || 0;
+  }
+  return Number(DEFAULT_PRODUCT_PRICES[name]) || 0;
+}
+
+function setCustomProductPrice(name, price) {
+  const custom = getCustomProductPrices();
+  custom[name] = Number(price) || 0;
+  localStorage.setItem(CUSTOM_PRODUCT_PRICES_KEY, JSON.stringify(custom));
+}
+
+
+
 /* =========================================================
    LOCAL APPLICATION DATA
    ========================================================= */
@@ -267,6 +309,11 @@ function databaseOrderToApp(row) {
     total:
       Number(row.total_amount || 0),
 
+    finalPrice:
+      Number(row.quantity || 0) > 0
+        ? Number(row.total_amount || 0) / Number(row.quantity || 1)
+        : Number(row.total_amount || 0),
+
     advance:
       Number(row.advance_paid || 0),
 
@@ -318,6 +365,9 @@ function databaseProductToApp(row) {
 
     active:
       row.active,
+
+    price:
+      getProductPrice(row.name),
 
     createdAt:
       row.created_at,
@@ -976,204 +1026,66 @@ async function saveOrder(event) {
 
   event.preventDefault();
 
-
   if (!currentUser) {
-
-    alert(
-      "Please sign in first."
-    );
-
+    alert("Please sign in first.");
     return;
-
   }
 
+  const editId = $("editId") ? $("editId").value : "";
+  const qty = Math.max(1, Number($("qty")?.value) || 1);
+  const productPrice = Number($("rate")?.value) || 0;
+  const finalPrice = Math.max(0, Number($("finalPrice")?.value) || 0);
+  const total = finalPrice * qty;
+  const advance = Number($("advance")?.value) || 0;
 
-  const editId =
-    $("editId")
-      ? $("editId").value
-      : "";
-
-
-  const total =
-    Number(
-      $("total").value
-    ) || 0;
-
-
-  const advance =
-    Number(
-      $("advance").value
-    ) || 0;
-
-
-  if (
-    advance > total &&
-    total > 0
-  ) {
-
-    alert(
-      "Advance Paid cannot be greater than Total Amount."
-    );
-
-    $("advance").focus();
-
+  if (advance > total && total > 0) {
+    alert("Advance Paid cannot be greater than Total Amount.");
+    $("advance")?.focus();
     return;
-
   }
 
+  let paymentStatus = $("paymentStatus") ? $("paymentStatus").value : "Unpaid";
+  paymentStatus = calculatePaymentStatus(total, advance, paymentStatus);
 
-  let paymentStatus =
-    $("paymentStatus")
-      ? $("paymentStatus").value
-      : "Unpaid";
-
-
-  paymentStatus =
-    calculatePaymentStatus(
-      total,
-      advance,
-      paymentStatus
-    );
-
-
-  const productName =
-    $("product").value;
-
-
-  const selectedProduct =
-    products.find(
-      product =>
-        product.name ===
-        productName
-    );
-
+  const productName = $("product")?.value || "";
+  const selectedProduct = products.find(product => product.name === productName);
 
   const payload = {
-
-    order_no:
-      $("orderNo").value,
-
-    order_date:
-      $("orderDate").value ||
-      today(),
-
-    customer_name:
-      $("customer").value.trim(),
-
-    mobile:
-      $("mobile").value.trim() ||
-      null,
-
-    product_id:
-      selectedProduct
-        ? selectedProduct.id
-        : null,
-
-    product_name:
-      productName,
-
-    quantity:
-      Number(
-        $("qty").value
-      ) || 1,
-
-    rate:
-      Number(
-        $("rate").value
-      ) || 0,
-
-    total_amount:
-      total,
-
-    advance_paid:
-      advance,
-
-    payment_status:
-      paymentStatus,
-
-    order_status:
-      $("orderStatus").value ||
-      "Created",
-
-    delivery_date:
-      $("deliveryDate").value ||
-      null,
-
-    payment_method:
-      $("paymentMethod").value ||
-      null,
-
-    delivery_type:
-      $("deliveryType").value ||
-      null,
-
-    notes:
-      $("notes").value.trim() ||
-      null
-
+    order_no: $("orderNo").value,
+    order_date: $("orderDate").value || today(),
+    customer_name: $("customer").value.trim(),
+    mobile: $("mobile").value.trim() || null,
+    product_id: selectedProduct ? selectedProduct.id : null,
+    product_name: productName,
+    quantity: qty,
+    rate: productPrice,
+    total_amount: total,
+    advance_paid: advance,
+    payment_status: paymentStatus,
+    order_status: $("orderStatus").value || "Created",
+    delivery_date: $("deliveryDate").value || null,
+    payment_method: $("paymentMethod").value || null,
+    delivery_type: $("deliveryType").value || null,
+    notes: $("notes").value.trim() || null
   };
-
 
   let result;
 
-
-  /* =====================================================
-     UPDATE EXISTING ORDER
-     ===================================================== */
-
   if (editId) {
-
-    result =
-      await supabaseClient
-        .from("orders")
-        .update(payload)
-        .eq("id", editId)
-        .select()
-        .single();
-
+    result = await supabaseClient.from("orders").update(payload).eq("id", editId).select().single();
+  } else {
+    result = await supabaseClient.from("orders").insert(payload).select().single();
   }
-
-
-  /* =====================================================
-     CREATE NEW ORDER
-     ===================================================== */
-
-  else {
-
-    result =
-      await supabaseClient
-        .from("orders")
-        .insert(payload)
-        .select()
-        .single();
-
-  }
-
 
   if (result.error) {
-
-    console.error(
-      "Save order error:",
-      result.error
-    );
-
-    alert(
-      "Unable to save order:\n\n" +
-      result.error.message
-    );
-
+    console.error("Save order error:", result.error);
+    alert("Unable to save order:\n\n" + result.error.message);
     return;
-
   }
 
-
   closeModal();
-
-
   await loadOrders();
-
 }
-
 
 /* =========================================================
    DELETE ORDER
@@ -1245,29 +1157,30 @@ async function deleteOrder(id) {
 
 function populateProductDropdown() {
 
-  if (!$("product")) {
+  if (!$("product")) return;
 
-    return;
+  const existingNames = new Set(products.map(product => product.name));
+  const catalog = Object.keys(DEFAULT_PRODUCT_PRICES).map(name => ({
+    id: "default-" + name,
+    name,
+    active: true,
+    price: getProductPrice(name)
+  }));
 
-  }
+  const allProducts = products.concat(
+    catalog.filter(product => !existingNames.has(product.name))
+  );
 
+  $("product").innerHTML = allProducts
+    .filter(product => product.active)
+    .map(product => {
+      const price = getProductPrice(product.name);
+      return `<option value="${escapeHTML(product.name)}" data-price="${price}">${escapeHTML(product.name)} — ${money(price)}</option>`;
+    })
+    .join("");
 
-  $("product").innerHTML =
-    products
-      .filter(
-        product =>
-          product.active
-      )
-      .map(
-        product =>
-          `<option value="${escapeHTML(product.name)}">
-            ${escapeHTML(product.name)}
-          </option>`
-      )
-      .join("");
-
+  setRateFromSelectedProduct();
 }
-
 
 /* =========================================================
    ADD PRODUCT
@@ -1275,86 +1188,42 @@ function populateProductDropdown() {
 
 async function addProduct() {
 
-  const input =
-    $("newProduct");
+  const input = $("newProduct");
+  const priceInput = $("newProductPrice");
+  if (!input) return;
 
-
-  if (!input) {
-
-    return;
-
-  }
-
-
-  const name =
-    input.value.trim();
-
+  const name = input.value.trim();
+  const price = priceInput ? Number(priceInput.value) || 0 : 0;
 
   if (!name) {
-
-    alert(
-      "Please enter a product name."
-    );
-
+    alert("Please enter a product name.");
     return;
-
   }
 
+  if (price < 0) {
+    alert("Product price cannot be negative.");
+    return;
+  }
 
-  const {
-    data,
-    error
-  } =
-    await supabaseClient
-      .from("products")
-      .insert({
-        name: name
-      })
-      .select()
-      .single();
-
+  const { data, error } = await supabaseClient
+    .from("products")
+    .insert({ name })
+    .select()
+    .single();
 
   if (error) {
-
-    if (
-      error.code ===
-      "23505"
-    ) {
-
-      alert(
-        "This product already exists."
-      );
-
-    } else {
-
-      alert(
-        "Unable to add product:\n\n" +
-        error.message
-      );
-
-    }
-
+    if (error.code === "23505") alert("This product already exists.");
+    else alert("Unable to add product:\n\n" + error.message);
     return;
-
   }
 
-
-  products.push(
-    databaseProductToApp(
-      data
-    )
-  );
-
-
+  setCustomProductPrice(name, price);
+  products.push(databaseProductToApp(data));
   input.value = "";
-
-
+  if (priceInput) priceInput.value = "";
   populateProductDropdown();
-
   renderProducts();
-
 }
-
 
 /* =========================================================
    REMOVE PRODUCT
@@ -1563,6 +1432,13 @@ function resetOrderForm() {
   }
 
 
+  if ($("finalPrice")) {
+
+    $("finalPrice").value = 0;
+
+  }
+
+
   if ($("total")) {
 
     $("total").value = 0;
@@ -1685,7 +1561,16 @@ function fillOrderForm(order) {
   if ($("rate")) {
 
     $("rate").value =
-      order.rate || 0;
+      order.rate || getProductPrice(order.product);
+
+  }
+
+
+  if ($("finalPrice")) {
+
+    const qty = Number(order.qty || 1) || 1;
+    const savedFinal = order.finalPrice ?? (Number(order.total || 0) / qty);
+    $("finalPrice").value = Number(savedFinal || 0).toFixed(2);
 
   }
 
@@ -1786,36 +1671,27 @@ function closeModal() {
 
 function autoCalculateTotal() {
 
-  if (!$("qty") || !$("rate")) {
-
-    return;
-
-  }
-
-
-  const qty =
-    Number(
-      $("qty").value
-    ) || 0;
-
-
-  const rate =
-    Number(
-      $("rate").value
-    ) || 0;
-
+  const qty = Math.max(1, Number($("qty")?.value) || 1);
+  const finalPrice = Math.max(0, Number($("finalPrice")?.value) || 0);
 
   if ($("total")) {
-
-    $("total").value =
-      (qty * rate)
-        .toFixed(2);
-
+    $("total").value = (qty * finalPrice).toFixed(2);
   }
 
-
   updatePaymentFields();
+}
 
+function setRateFromSelectedProduct() {
+
+  if (!$("product")) return;
+
+  const name = $("product").value;
+  const price = getProductPrice(name);
+
+  if ($("rate")) $("rate").value = price;
+  if ($("finalPrice")) $("finalPrice").value = price;
+
+  autoCalculateTotal();
 }
 
 
@@ -2440,6 +2316,10 @@ function createOrdersTable(
 
             <th>Product</th>
 
+            <th>Product Price</th>
+
+            <th>Final Price</th>
+
             <th>Total</th>
 
             <th>Advance</th>
@@ -2538,6 +2418,16 @@ function createOrderRow(
           Qty: ${escapeHTML(order.qty)}
         </small>
 
+      </td>
+
+
+      <td>
+        ${money(order.rate)}
+      </td>
+
+
+      <td>
+        ${money(order.finalPrice ?? (Number(order.qty || 1) > 0 ? Number(order.total || 0) / Number(order.qty || 1) : 0))}
       </td>
 
 
@@ -2771,54 +2661,61 @@ function createSummaryTable(
 
 function renderProducts() {
 
-  if (!$("productList")) {
+  if (!$("productList")) return;
 
+  const existingNames = new Set(products.map(product => product.name));
+  const catalog = Object.keys(DEFAULT_PRODUCT_PRICES).map(name => ({
+    id: "default-" + name,
+    name,
+    active: true
+  }));
+  const allProducts = products.concat(catalog.filter(product => !existingNames.has(product.name)));
+
+  $("productList").innerHTML = allProducts.filter(product => product.active).map(product => {
+    const price = getProductPrice(product.name);
+    const removable = !String(product.id).startsWith("default-");
+    return `
+      <div class="product-row">
+        <div><strong>${escapeHTML(product.name)}</strong><span style="margin-left:12px;">${money(price)}</span></div>
+        ${removable ? `<button class="action danger" onclick="removeProduct('${escapeHTML(product.id)}')">Remove</button>` : ""}
+      </div>
+    `;
+  }).join("");
+}
+
+/* =========================================================
+   PRINT / SAVE DASHBOARD PDF
+   ========================================================= */
+
+function printDashboardReport() {
+
+  const todayOrders = orders.filter(order => order.date === today());
+  const totals = calculateTotals(todayOrders);
+  const activeOrders = orders.filter(order => !["Delivered", "RTO"].includes(order.orderStatus));
+
+  const rows = orders.slice(0, 50).map(order => {
+    const finalPrice = order.finalPrice ?? (Number(order.qty || 1) > 0 ? Number(order.total || 0) / Number(order.qty || 1) : 0);
+    const balance = order.balance ?? calculateBalance(order.total, order.advance);
+    return `<tr><td>${escapeHTML(order.orderNo)}</td><td>${escapeHTML(formatDisplayDate(order.date))}</td><td>${escapeHTML(order.customer)}</td><td>${escapeHTML(order.product)}</td><td class="right">${money(order.rate)}</td><td class="right">${money(finalPrice)}</td><td class="right">${money(order.total)}</td><td class="right">${money(order.advance)}</td><td class="right">${money(balance)}</td><td>${escapeHTML(order.orderStatus || "")}</td></tr>`;
+  }).join("");
+
+  const printWindow = window.open("", "_blank");
+  if (!printWindow) {
+    alert("Please allow pop-ups to print or save the dashboard PDF.");
     return;
-
   }
 
+  printWindow.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>WOGE Order Manager Dashboard</title><style>
+@page{size:A4 landscape;margin:10mm}*{box-sizing:border-box}body{margin:0;font-family:Arial,Helvetica,sans-serif;color:#161616;background:#fff;font-size:9px}.header{border-bottom:3px solid #c9a227;padding-bottom:10px;margin-bottom:12px}.brand{font-size:10px;font-weight:700;letter-spacing:2px}h1{margin:3px 0 2px;font-family:Georgia,serif;font-size:24px}.sub{color:#666;font-size:9px}.cards{display:grid;grid-template-columns:repeat(5,1fr);gap:7px;margin:12px 0}.card{border:1px solid #d6d6d6;border-radius:5px;padding:9px}.label{color:#666;text-transform:uppercase;font-size:7px;letter-spacing:1px}.value{font-size:14px;font-weight:700;margin-top:5px}table{width:100%;border-collapse:collapse;margin-top:10px}th{background:#151515;color:#fff;text-align:left;font-size:7px;text-transform:uppercase;letter-spacing:.5px;padding:6px 5px}td{border-bottom:1px solid #ddd;padding:5px;vertical-align:top}.right{text-align:right}.footer{margin-top:12px;border-top:1px solid #ccc;padding-top:7px;display:flex;justify-content:space-between;color:#777;font-size:7px}@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+</style></head><body><div class="header"><div class="brand">WORD OF GOD ENTERPRISES</div><h1>WOGE ORDER MANAGER</h1><div class="sub">Dashboard Report • ${escapeHTML(formatDisplayDate(today()))}</div></div><div class="cards"><div class="card"><div class="label">Today’s Orders</div><div class="value">${todayOrders.length}</div></div><div class="card"><div class="label">Today’s Sales</div><div class="value">${money(totals.total)}</div></div><div class="card"><div class="label">Advance Collected</div><div class="value">${money(totals.advance)}</div></div><div class="card"><div class="label">Outstanding</div><div class="value">${money(totals.balance)}</div></div><div class="card"><div class="label">Active Orders</div><div class="value">${activeOrders.length}</div></div></div><table><thead><tr><th>Order</th><th>Date</th><th>Customer</th><th>Product</th><th>Product Price</th><th>Final Price</th><th>Total</th><th>Advance</th><th>Balance</th><th>Status</th></tr></thead><tbody>${rows || '<tr><td colspan="10" style="text-align:center">No orders found.</td></tr>'}</tbody></table><div class="footer"><span>WORD OF GOD ENTERPRISES • WOGE ORDER MANAGER</span><span>Generated: ${escapeHTML(new Date().toLocaleString("en-IN"))}</span></div><script>window.onload=function(){setTimeout(function(){window.print();},400);};<\/script></body></html>`);
 
-  if (!products.length) {
+  printWindow.document.close();
+}
 
-    $("productList").innerHTML =
-
-      `<div class="empty-state">
-        No products added.
-       </div>`;
-
-    return;
-
-  }
-
-
-  $("productList").innerHTML =
-    products
-      .filter(
-        product =>
-          product.active
-      )
-      .map(
-        product => `
-
-          <div class="product-row">
-
-            <span>
-              ${escapeHTML(product.name)}
-            </span>
-
-            <button
-              class="action danger"
-              onclick="removeProduct('${escapeHTML(product.id)}')"
-            >
-              Remove
-            </button>
-
-          </div>
-
-        `
-      )
-      .join("");
-
+function formatDisplayDate(date) {
+  if (!date) return "";
+  const parts = String(date).split("-");
+  return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : String(date);
 }
 
 
@@ -3209,11 +3106,24 @@ function setupEvents() {
   }
 
 
-  /* Rate */
+  /* Product */
 
-  if ($("rate")) {
+  if ($("product")) {
 
-    $("rate")
+    $("product")
+      .addEventListener(
+        "change",
+        setRateFromSelectedProduct
+      );
+
+  }
+
+
+  /* Final Price */
+
+  if ($("finalPrice")) {
+
+    $("finalPrice")
       .addEventListener(
         "input",
         autoCalculateTotal
@@ -3703,6 +3613,9 @@ window.updatePaymentFields =
 
 window.autoCalculateTotal =
   autoCalculateTotal;
+
+window.printDashboardReport =
+  printDashboardReport;
 
 
 /* =========================================================
