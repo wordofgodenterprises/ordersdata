@@ -1521,7 +1521,7 @@ function fillOrderForm(order) {
   if ($("orderDate")) {
 
     $("orderDate").value =
-      order.date || today();
+      normalizeDateValue(order.date || today());
 
   }
 
@@ -1612,7 +1612,7 @@ function fillOrderForm(order) {
   if ($("deliveryDate")) {
 
     $("deliveryDate").value =
-      order.deliveryDate || "";
+      normalizeDateValue(order.deliveryDate || "");
 
   }
 
@@ -3467,6 +3467,37 @@ function showDatabaseError(
     error
   );
 
+}
+
+
+
+
+/* =========================================================
+   CALENDAR PICKER
+   ========================================================= */
+
+function normalizeDateValue(value) {
+  const v = String(value || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+  const m = v.match(/^(\d{2})[-\/](\d{2})[-\/](\d{4})$/);
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  return v;
+}
+
+function setupCalendarPickers() {
+  ["orderDate", "deliveryDate", "dailyDate", "weekDate", "monthDate"].forEach(id => {
+    const input = $(id);
+    if (!input) return;
+    input.type = id === "monthDate" ? "month" : "date";
+    input.style.cursor = "pointer";
+    input.addEventListener("click", () => {
+      try {
+        if (typeof input.showPicker === "function") input.showPicker();
+      } catch (e) {
+        // Native picker can still open normally on browsers without showPicker support.
+      }
+    });
+  });
 }
 
 
