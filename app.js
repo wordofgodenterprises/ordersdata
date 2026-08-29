@@ -1,11 +1,29 @@
 /* =========================================================
    WOGE ORDER MANAGER
-   APPLICATION ENGINE
+   CLOUD + REALTIME VERSION
    ========================================================= */
 
 
 /* =========================================================
-   CONFIGURATION
+   SUPABASE CONFIGURATION
+   ========================================================= */
+
+const SUPABASE_URL =
+  "https://xdvhqanrjuryehkwfnzm.supabase.co";
+
+const SUPABASE_PUBLISHABLE_KEY =
+  "sb_publishable_6b67HA38wdGaP1BJuIyY6w_8R1ePgsc";
+
+
+const supabaseClient =
+  window.supabase.createClient(
+    SUPABASE_URL,
+    SUPABASE_PUBLISHABLE_KEY
+  );
+
+
+/* =========================================================
+   CONSTANTS
    ========================================================= */
 
 const ORDER_STATUSES = [
@@ -19,12 +37,14 @@ const ORDER_STATUSES = [
   "RTO"
 ];
 
+
 const PAYMENT_STATUSES = [
   "Paid",
   "Partially Paid",
   "Unpaid",
   "Pay on Delivery"
 ];
+
 
 const PAYMENT_METHODS = [
   "Cash",
@@ -33,6 +53,7 @@ const PAYMENT_METHODS = [
   "Card",
   "Other"
 ];
+
 
 const DELIVERY_TYPES = [
   "Pickup",
@@ -43,54 +64,24 @@ const DELIVERY_TYPES = [
 
 
 /* =========================================================
-   DEFAULT PRODUCTS
+   LOCAL APPLICATION DATA
    ========================================================= */
 
-const DEFAULT_PRODUCTS = [
+let orders = [];
 
-  "LED Bible Verse Frame",
+let products = [];
 
-  "Premium LED Frame",
+let realtimeChannel = null;
 
-  "Customized Church Logo Frame",
-
-  "Large-Size LED Scripture Frame",
-
-  "Multilingual LED Bible Verse Frame",
-
-  "UV Printed Mobile Cover",
-
-  "Church Podium",
-
-  "LED Cross"
-
-];
+let currentUser = null;
 
 
 /* =========================================================
-   DATA
-   ========================================================= */
-
-let products =
-  JSON.parse(
-    localStorage.getItem("woge_products")
-  ) || DEFAULT_PRODUCTS;
-
-
-let orders =
-  JSON.parse(
-    localStorage.getItem("woge_orders")
-  ) || [];
-
-
-/* =========================================================
-   HELPERS
+   BASIC HELPERS
    ========================================================= */
 
 function $(id) {
-
   return document.getElementById(id);
-
 }
 
 
@@ -124,14 +115,6 @@ function currentMonth() {
 }
 
 
-function generateId() {
-
-  return Date.now().toString(36) +
-    Math.random().toString(36).substring(2);
-
-}
-
-
 function escapeHTML(value) {
 
   return String(value ?? "")
@@ -144,30 +127,10 @@ function escapeHTML(value) {
 }
 
 
-/* =========================================================
-   SAVE DATA
-   ========================================================= */
-
-function saveData() {
-
-  localStorage.setItem(
-    "woge_products",
-    JSON.stringify(products)
-  );
-
-  localStorage.setItem(
-    "woge_orders",
-    JSON.stringify(orders)
-  );
-
-}
-
-
-/* =========================================================
-   ORDER NUMBER
-   ========================================================= */
-
 function generateOrderNumber() {
+
+  const year =
+    new Date().getFullYear();
 
   let highest = 0;
 
@@ -194,36 +157,17 @@ function generateOrderNumber() {
 
   return (
     "WOGE-" +
-    new Date().getFullYear() +
+    year +
     "-" +
-    String(highest + 1).padStart(4, "0")
+    String(highest + 1)
+      .padStart(4, "0")
   );
 
 }
 
 
 /* =========================================================
-   PAYMENT STATUS AUTOMATION
-   =========================================================
-
-   Rules:
-
-   Pay on Delivery
-        ↓
-   Always Pay on Delivery
-
-   Advance = 0
-        ↓
-   Unpaid
-
-   Advance > 0 AND Advance < Total
-        ↓
-   Partially Paid
-
-   Advance >= Total
-        ↓
-   Paid
-
+   PAYMENT AUTOMATION
    ========================================================= */
 
 function calculatePaymentStatus(
@@ -232,15 +176,16 @@ function calculatePaymentStatus(
   selectedStatus
 ) {
 
-  total = Number(total) || 0;
+  total =
+    Number(total) || 0;
 
-  advance = Number(advance) || 0;
+  advance =
+    Number(advance) || 0;
 
-
-  /* Pay on Delivery */
 
   if (
-    selectedStatus === "Pay on Delivery"
+    selectedStatus ===
+    "Pay on Delivery"
   ) {
 
     return "Pay on Delivery";
@@ -248,16 +193,12 @@ function calculatePaymentStatus(
   }
 
 
-  /* No payment */
-
   if (advance <= 0) {
 
     return "Unpaid";
 
   }
 
-
-  /* Full payment */
 
   if (
     total > 0 &&
@@ -269,272 +210,757 @@ function calculatePaymentStatus(
   }
 
 
-  /* Partial payment */
-
   return "Partially Paid";
 
 }
 
-
-/* =========================================================
-   BALANCE CALCULATION
-   ========================================================= */
 
 function calculateBalance(
   total,
   advance
 ) {
 
-  total = Number(total) || 0;
-
-  advance = Number(advance) || 0;
-
   return Math.max(
     0,
-    total - advance
+    (Number(total) || 0) -
+    (Number(advance) || 0)
   );
 
 }
 
 
 /* =========================================================
-   INITIAL SETUP
+   DATABASE → APPLICATION FORMAT
    ========================================================= */
 
-function setupApplication() {
+function databaseOrderToApp(row) {
 
-  /* Dates */
+  return {
 
-  if ($("dailyDate")) {
+    id:
+      row.id,
 
-    $("dailyDate").value = today();
+    orderNo:
+      row.order_no,
+
+    date:
+      row.order_date,
+
+    customer:
+      row.customer_name,
+
+    mobile:
+      row.mobile || "",
+
+    product:
+      row.product_name,
+
+    productId:
+      row.product_id,
+
+    qty:
+      Number(row.quantity || 0),
+
+    rate:
+      Number(row.rate || 0),
+
+    total:
+      Number(row.total_amount || 0),
+
+    advance:
+      Number(row.advance_paid || 0),
+
+    balance:
+      Number(row.balance_due || 0),
+
+    paymentStatus:
+      row.payment_status,
+
+    orderStatus:
+      row.order_status,
+
+    deliveryDate:
+      row.delivery_date || "",
+
+    paymentMethod:
+      row.payment_method || "",
+
+    deliveryType:
+      row.delivery_type || "",
+
+    notes:
+      row.notes || "",
+
+    createdAt:
+      row.created_at,
+
+    updatedAt:
+      row.updated_at
+
+  };
+
+}
+
+
+/* =========================================================
+   DATABASE → PRODUCT FORMAT
+   ========================================================= */
+
+function databaseProductToApp(row) {
+
+  return {
+
+    id:
+      row.id,
+
+    name:
+      row.name,
+
+    active:
+      row.active,
+
+    createdAt:
+      row.created_at,
+
+    updatedAt:
+      row.updated_at
+
+  };
+
+}
+
+
+/* =========================================================
+   AUTHENTICATION UI
+   ========================================================= */
+
+function createLoginScreen() {
+
+  if ($("wogeLoginScreen")) {
+
+    return;
 
   }
 
 
-  if ($("weekDate")) {
+  const overlay =
+    document.createElement("div");
 
-    $("weekDate").value = today();
+
+  overlay.id =
+    "wogeLoginScreen";
+
+
+  overlay.innerHTML = `
+
+    <div class="woge-login-box">
+
+      <div class="woge-login-logo">
+
+        <div class="woge-login-w">
+          W
+        </div>
+
+      </div>
+
+
+      <div class="woge-login-brand">
+        WORD OF GOD ENTERPRISES
+      </div>
+
+
+      <h1>
+        WOGE Orders
+      </h1>
+
+
+      <p class="woge-login-subtitle">
+        Secure Order Management
+      </p>
+
+
+      <form id="wogeLoginForm">
+
+        <label>
+          Email
+        </label>
+
+        <input
+          type="email"
+          id="wogeLoginEmail"
+          placeholder="Email address"
+          autocomplete="username"
+          required
+        >
+
+
+        <label>
+          Password
+        </label>
+
+        <input
+          type="password"
+          id="wogeLoginPassword"
+          placeholder="Password"
+          autocomplete="current-password"
+          required
+        >
+
+
+        <button
+          type="submit"
+          class="woge-login-button"
+        >
+          Sign In
+        </button>
+
+
+        <div
+          id="wogeLoginMessage"
+          class="woge-login-message"
+        ></div>
+
+      </form>
+
+
+      <div class="woge-login-footer">
+        WOGE ORDER MANAGER
+      </div>
+
+    </div>
+
+  `;
+
+
+  document.body.appendChild(
+    overlay
+  );
+
+
+  document
+    .getElementById("wogeLoginForm")
+    .addEventListener(
+      "submit",
+      loginUser
+    );
+
+}
+
+
+function addLoginStyles() {
+
+  if (
+    document.getElementById(
+      "wogeLoginStyles"
+    )
+  ) {
+
+    return;
 
   }
 
 
-  if ($("monthDate")) {
+  const style =
+    document.createElement("style");
 
-    $("monthDate").value =
-      currentMonth();
+
+  style.id =
+    "wogeLoginStyles";
+
+
+  style.textContent = `
+
+    #wogeLoginScreen {
+
+      position: fixed;
+
+      inset: 0;
+
+      z-index: 999999;
+
+      display: flex;
+
+      align-items: center;
+
+      justify-content: center;
+
+      background:
+        radial-gradient(
+          circle at top right,
+          rgba(212,175,55,.10),
+          transparent 35%
+        ),
+        #080808;
+
+      padding: 20px;
+
+    }
+
+
+    .woge-login-box {
+
+      width: 100%;
+
+      max-width: 430px;
+
+      padding: 42px;
+
+      background:
+        linear-gradient(
+          145deg,
+          #151515,
+          #0b0b0b
+        );
+
+      border: 1px solid
+        rgba(212,175,55,.35);
+
+      border-radius: 18px;
+
+      box-shadow:
+        0 25px 80px
+        rgba(0,0,0,.65);
+
+    }
+
+
+    .woge-login-logo {
+
+      display: flex;
+
+      justify-content: center;
+
+      margin-bottom: 20px;
+
+    }
+
+
+    .woge-login-w {
+
+      width: 62px;
+
+      height: 62px;
+
+      display: flex;
+
+      align-items: center;
+
+      justify-content: center;
+
+      border: 1px solid
+        #c9a227;
+
+      border-radius: 14px;
+
+      color: #d4af37;
+
+      font-family: Georgia, serif;
+
+      font-size: 34px;
+
+    }
+
+
+    .woge-login-brand {
+
+      text-align: center;
+
+      color: #d4af37;
+
+      font-size: 11px;
+
+      font-weight: 700;
+
+      letter-spacing: 2px;
+
+      margin-bottom: 10px;
+
+    }
+
+
+    .woge-login-box h1 {
+
+      text-align: center;
+
+      margin: 0;
+
+      color: #f4f0e5;
+
+      font-family: Georgia, serif;
+
+      font-size: 34px;
+
+    }
+
+
+    .woge-login-subtitle {
+
+      text-align: center;
+
+      color: #999;
+
+      margin: 8px 0 30px;
+
+      font-size: 13px;
+
+    }
+
+
+    .woge-login-box label {
+
+      display: block;
+
+      color: #b9b9b9;
+
+      font-size: 12px;
+
+      margin:
+        15px 0 7px;
+
+    }
+
+
+    .woge-login-box input {
+
+      width: 100%;
+
+      box-sizing: border-box;
+
+      padding: 13px 14px;
+
+      background: #101010;
+
+      border: 1px solid #333;
+
+      border-radius: 8px;
+
+      color: white;
+
+      outline: none;
+
+      font-size: 14px;
+
+    }
+
+
+    .woge-login-box input:focus {
+
+      border-color: #d4af37;
+
+      box-shadow:
+        0 0 0 2px
+        rgba(212,175,55,.10);
+
+    }
+
+
+    .woge-login-button {
+
+      width: 100%;
+
+      margin-top: 24px;
+
+      padding: 13px;
+
+      border: 0;
+
+      border-radius: 8px;
+
+      background:
+        linear-gradient(
+          135deg,
+          #d4af37,
+          #f2d36b
+        );
+
+      color: #151515;
+
+      font-weight: 700;
+
+      cursor: pointer;
+
+    }
+
+
+    .woge-login-button:hover {
+
+      filter: brightness(1.08);
+
+    }
+
+
+    .woge-login-message {
+
+      min-height: 20px;
+
+      margin-top: 14px;
+
+      text-align: center;
+
+      color: #e6b84a;
+
+      font-size: 12px;
+
+    }
+
+
+    .woge-login-footer {
+
+      margin-top: 28px;
+
+      text-align: center;
+
+      color: #555;
+
+      font-size: 9px;
+
+      letter-spacing: 2px;
+
+    }
+
+  `;
+
+
+  document.head.appendChild(
+    style
+  );
+
+}
+
+
+function showLoginScreen() {
+
+  addLoginStyles();
+
+  createLoginScreen();
+
+  $("wogeLoginScreen")
+    .style
+    .display = "flex";
+
+}
+
+
+function hideLoginScreen() {
+
+  if ($("wogeLoginScreen")) {
+
+    $("wogeLoginScreen")
+      .style
+      .display = "none";
+
+  }
+
+}
+
+
+/* =========================================================
+   LOGIN
+   ========================================================= */
+
+async function loginUser(event) {
+
+  event.preventDefault();
+
+
+  const email =
+    $("wogeLoginEmail")
+      .value
+      .trim();
+
+
+  const password =
+    $("wogeLoginPassword")
+      .value;
+
+
+  const message =
+    $("wogeLoginMessage");
+
+
+  message.textContent =
+    "Signing in...";
+
+
+  const {
+    data,
+    error
+  } =
+    await supabaseClient.auth
+      .signInWithPassword({
+        email,
+        password
+      });
+
+
+  if (error) {
+
+    message.textContent =
+      error.message;
+
+    return;
 
   }
 
 
-  /* Order status dropdown */
-
-  if ($("orderStatus")) {
-
-    $("orderStatus").innerHTML =
-      ORDER_STATUSES
-        .map(
-          status =>
-            `<option value="${escapeHTML(status)}">
-              ${escapeHTML(status)}
-            </option>`
-        )
-        .join("");
-
-  }
+  currentUser =
+    data.user;
 
 
-  /* Order status filter */
+  message.textContent =
+    "";
 
-  if ($("statusFilter")) {
 
-    $("statusFilter").innerHTML =
-      `<option value="">
-        All Order Status
-      </option>` +
-      ORDER_STATUSES
-        .map(
-          status =>
-            `<option value="${escapeHTML(status)}">
-              ${escapeHTML(status)}
-            </option>`
-        )
-        .join("");
+  hideLoginScreen();
+
+
+  await startApplication();
+
+}
+
+
+/* =========================================================
+   LOGOUT
+   ========================================================= */
+
+async function logoutUser() {
+
+  const confirmed =
+    confirm(
+      "Sign out of WOGE Orders?"
+    );
+
+
+  if (!confirmed) {
+
+    return;
 
   }
 
 
-  /* Product dropdown */
+  if (realtimeChannel) {
+
+    await supabaseClient
+      .removeChannel(
+        realtimeChannel
+      );
+
+    realtimeChannel = null;
+
+  }
+
+
+  await supabaseClient.auth
+    .signOut();
+
+
+  orders = [];
+
+  products = [];
+
+  currentUser = null;
+
+
+  showLoginScreen();
+
+}
+
+
+/* =========================================================
+   LOAD PRODUCTS FROM SUPABASE
+   ========================================================= */
+
+async function loadProducts() {
+
+  const {
+    data,
+    error
+  } =
+    await supabaseClient
+      .from("products")
+      .select("*")
+      .eq("active", true)
+      .order("name");
+
+
+  if (error) {
+
+    console.error(
+      "Product loading error:",
+      error
+    );
+
+    showDatabaseError(
+      "Unable to load products."
+    );
+
+    return;
+
+  }
+
+
+  products =
+    (data || [])
+      .map(
+        databaseProductToApp
+      );
+
 
   populateProductDropdown();
 
-
-  /* Event listeners */
-
-  setupEvents();
-
-
-  /* Render */
-
-  renderEverything();
+  renderProducts();
 
 }
 
 
 /* =========================================================
-   EVENT LISTENERS
+   LOAD ORDERS FROM SUPABASE
    ========================================================= */
 
-function setupEvents() {
+async function loadOrders() {
 
-
-  /* Navigation */
-
-  document
-    .querySelectorAll(".tab")
-    .forEach(button => {
-
-      button.addEventListener(
-        "click",
-        function () {
-
-          showPage(
-            this.dataset.page
-          );
-
+  const {
+    data,
+    error
+  } =
+    await supabaseClient
+      .from("orders")
+      .select("*")
+      .order(
+        "order_date",
+        {
+          ascending: false
+        }
+      )
+      .order(
+        "created_at",
+        {
+          ascending: false
         }
       );
 
-    });
 
+  if (error) {
 
-  /* Order form */
-
-  if ($("orderForm")) {
-
-    $("orderForm")
-      .addEventListener(
-        "submit",
-        saveOrder
-      );
-
-  }
-
-
-  /* Payment calculation */
-
-  if ($("total")) {
-
-    $("total")
-      .addEventListener(
-        "input",
-        updatePaymentFields
-      );
-
-  }
-
-
-  if ($("advance")) {
-
-    $("advance")
-      .addEventListener(
-        "input",
-        updatePaymentFields
-      );
-
-  }
-
-
-  if ($("paymentStatus")) {
-
-    $("paymentStatus")
-      .addEventListener(
-        "change",
-        updatePaymentFields
-      );
-
-  }
-
-
-  /* Quantity × Rate */
-
-  if ($("qty")) {
-
-    $("qty")
-      .addEventListener(
-        "input",
-        autoCalculateTotal
-      );
-
-  }
-
-
-  if ($("rate")) {
-
-    $("rate")
-      .addEventListener(
-        "input",
-        autoCalculateTotal
-      );
-
-  }
-
-}
-
-
-/* =========================================================
-   PAGE NAVIGATION
-   ========================================================= */
-
-function showPage(pageName) {
-
-
-  document
-    .querySelectorAll(".page")
-    .forEach(page => {
-
-      page.classList.remove(
-        "active"
-      );
-
-    });
-
-
-  document
-    .querySelectorAll(".tab")
-    .forEach(tab => {
-
-      tab.classList.remove(
-        "active"
-      );
-
-    });
-
-
-  const page =
-    $(pageName);
-
-  if (page) {
-
-    page.classList.add(
-      "active"
+    console.error(
+      "Order loading error:",
+      error
     );
 
+    showDatabaseError(
+      "Unable to load orders."
+    );
+
+    return;
+
   }
 
 
-  const activeTab =
-    document.querySelector(
-      `.tab[data-page="${pageName}"]`
-    );
-
-  if (activeTab) {
-
-    activeTab.classList.add(
-      "active"
-    );
-
-  }
+  orders =
+    (data || [])
+      .map(
+        databaseOrderToApp
+      );
 
 
   renderEverything();
@@ -543,11 +969,471 @@ function showPage(pageName) {
 
 
 /* =========================================================
-   OPEN NEW ORDER
+   SAVE ORDER TO SUPABASE
+   ========================================================= */
+
+async function saveOrder(event) {
+
+  event.preventDefault();
+
+
+  if (!currentUser) {
+
+    alert(
+      "Please sign in first."
+    );
+
+    return;
+
+  }
+
+
+  const editId =
+    $("editId")
+      ? $("editId").value
+      : "";
+
+
+  const total =
+    Number(
+      $("total").value
+    ) || 0;
+
+
+  const advance =
+    Number(
+      $("advance").value
+    ) || 0;
+
+
+  if (
+    advance > total &&
+    total > 0
+  ) {
+
+    alert(
+      "Advance Paid cannot be greater than Total Amount."
+    );
+
+    $("advance").focus();
+
+    return;
+
+  }
+
+
+  let paymentStatus =
+    $("paymentStatus")
+      ? $("paymentStatus").value
+      : "Unpaid";
+
+
+  paymentStatus =
+    calculatePaymentStatus(
+      total,
+      advance,
+      paymentStatus
+    );
+
+
+  const productName =
+    $("product").value;
+
+
+  const selectedProduct =
+    products.find(
+      product =>
+        product.name ===
+        productName
+    );
+
+
+  const payload = {
+
+    order_no:
+      $("orderNo").value,
+
+    order_date:
+      $("orderDate").value ||
+      today(),
+
+    customer_name:
+      $("customer").value.trim(),
+
+    mobile:
+      $("mobile").value.trim() ||
+      null,
+
+    product_id:
+      selectedProduct
+        ? selectedProduct.id
+        : null,
+
+    product_name:
+      productName,
+
+    quantity:
+      Number(
+        $("qty").value
+      ) || 1,
+
+    rate:
+      Number(
+        $("rate").value
+      ) || 0,
+
+    total_amount:
+      total,
+
+    advance_paid:
+      advance,
+
+    payment_status:
+      paymentStatus,
+
+    order_status:
+      $("orderStatus").value ||
+      "Created",
+
+    delivery_date:
+      $("deliveryDate").value ||
+      null,
+
+    payment_method:
+      $("paymentMethod").value ||
+      null,
+
+    delivery_type:
+      $("deliveryType").value ||
+      null,
+
+    notes:
+      $("notes").value.trim() ||
+      null
+
+  };
+
+
+  let result;
+
+
+  /* =====================================================
+     UPDATE EXISTING ORDER
+     ===================================================== */
+
+  if (editId) {
+
+    result =
+      await supabaseClient
+        .from("orders")
+        .update(payload)
+        .eq("id", editId)
+        .select()
+        .single();
+
+  }
+
+
+  /* =====================================================
+     CREATE NEW ORDER
+     ===================================================== */
+
+  else {
+
+    result =
+      await supabaseClient
+        .from("orders")
+        .insert(payload)
+        .select()
+        .single();
+
+  }
+
+
+  if (result.error) {
+
+    console.error(
+      "Save order error:",
+      result.error
+    );
+
+    alert(
+      "Unable to save order:\n\n" +
+      result.error.message
+    );
+
+    return;
+
+  }
+
+
+  closeModal();
+
+
+  await loadOrders();
+
+}
+
+
+/* =========================================================
+   DELETE ORDER
+   ========================================================= */
+
+async function deleteOrder(id) {
+
+  const order =
+    orders.find(
+      item =>
+        item.id === id
+    );
+
+
+  if (!order) {
+
+    return;
+
+  }
+
+
+  const confirmed =
+    confirm(
+      `Delete order ${order.orderNo}?`
+    );
+
+
+  if (!confirmed) {
+
+    return;
+
+  }
+
+
+  const {
+    error
+  } =
+    await supabaseClient
+      .from("orders")
+      .delete()
+      .eq("id", id);
+
+
+  if (error) {
+
+    console.error(
+      "Delete order error:",
+      error
+    );
+
+    alert(
+      "Unable to delete order:\n\n" +
+      error.message
+    );
+
+    return;
+
+  }
+
+
+  await loadOrders();
+
+}
+
+
+/* =========================================================
+   PRODUCT DROPDOWN
+   ========================================================= */
+
+function populateProductDropdown() {
+
+  if (!$("product")) {
+
+    return;
+
+  }
+
+
+  $("product").innerHTML =
+    products
+      .filter(
+        product =>
+          product.active
+      )
+      .map(
+        product =>
+          `<option value="${escapeHTML(product.name)}">
+            ${escapeHTML(product.name)}
+          </option>`
+      )
+      .join("");
+
+}
+
+
+/* =========================================================
+   ADD PRODUCT
+   ========================================================= */
+
+async function addProduct() {
+
+  const input =
+    $("newProduct");
+
+
+  if (!input) {
+
+    return;
+
+  }
+
+
+  const name =
+    input.value.trim();
+
+
+  if (!name) {
+
+    alert(
+      "Please enter a product name."
+    );
+
+    return;
+
+  }
+
+
+  const {
+    data,
+    error
+  } =
+    await supabaseClient
+      .from("products")
+      .insert({
+        name: name
+      })
+      .select()
+      .single();
+
+
+  if (error) {
+
+    if (
+      error.code ===
+      "23505"
+    ) {
+
+      alert(
+        "This product already exists."
+      );
+
+    } else {
+
+      alert(
+        "Unable to add product:\n\n" +
+        error.message
+      );
+
+    }
+
+    return;
+
+  }
+
+
+  products.push(
+    databaseProductToApp(
+      data
+    )
+  );
+
+
+  input.value = "";
+
+
+  populateProductDropdown();
+
+  renderProducts();
+
+}
+
+
+/* =========================================================
+   REMOVE PRODUCT
+   ========================================================= */
+
+async function removeProduct(
+  productId
+) {
+
+  const product =
+    products.find(
+      item =>
+        item.id ===
+        productId
+    );
+
+
+  if (!product) {
+
+    return;
+
+  }
+
+
+  const confirmed =
+    confirm(
+      `Remove "${product.name}" from the product list?`
+    );
+
+
+  if (!confirmed) {
+
+    return;
+
+  }
+
+
+  /*
+    We deactivate products rather than
+    deleting them. Existing orders remain
+    linked safely.
+  */
+
+  const {
+    error
+  } =
+    await supabaseClient
+      .from("products")
+      .update({
+        active: false
+      })
+      .eq(
+        "id",
+        productId
+      );
+
+
+  if (error) {
+
+    alert(
+      "Unable to remove product:\n\n" +
+      error.message
+    );
+
+    return;
+
+  }
+
+
+  await loadProducts();
+
+}
+
+
+/* =========================================================
+   OPEN ORDER
    ========================================================= */
 
 function openOrder(id = null) {
-
 
   if (!$("modal")) {
 
@@ -561,8 +1447,12 @@ function openOrder(id = null) {
     .remove("hidden");
 
 
-  $("editId").value =
-    id || "";
+  if ($("editId")) {
+
+    $("editId").value =
+      id || "";
+
+  }
 
 
   populateProductDropdown();
@@ -572,7 +1462,8 @@ function openOrder(id = null) {
 
     const order =
       orders.find(
-        item => item.id === id
+        item =>
+          item.id === id
       );
 
 
@@ -585,22 +1476,284 @@ function openOrder(id = null) {
     }
 
 
-    $("modalTitle").textContent =
-      "Edit Order";
+    if ($("modalTitle")) {
+
+      $("modalTitle")
+        .textContent =
+        "Edit Order";
+
+    }
 
 
     fillOrderForm(order);
 
+  }
 
-  } else {
+  else {
 
+    if ($("modalTitle")) {
 
-    $("modalTitle").textContent =
-      "New Order";
+      $("modalTitle")
+        .textContent =
+        "New Order";
+
+    }
 
 
     resetOrderForm();
 
+  }
+
+
+  updatePaymentFields();
+
+}
+
+
+/* =========================================================
+   RESET ORDER FORM
+   ========================================================= */
+
+function resetOrderForm() {
+
+  if (!$("orderForm")) {
+
+    return;
+
+  }
+
+
+  $("orderForm").reset();
+
+
+  if ($("editId")) {
+
+    $("editId").value = "";
+
+  }
+
+
+  if ($("orderNo")) {
+
+    $("orderNo").value =
+      generateOrderNumber();
+
+  }
+
+
+  if ($("orderDate")) {
+
+    $("orderDate").value =
+      today();
+
+  }
+
+
+  if ($("qty")) {
+
+    $("qty").value = 1;
+
+  }
+
+
+  if ($("rate")) {
+
+    $("rate").value = 0;
+
+  }
+
+
+  if ($("total")) {
+
+    $("total").value = 0;
+
+  }
+
+
+  if ($("advance")) {
+
+    $("advance").value = 0;
+
+  }
+
+
+  if ($("paymentStatus")) {
+
+    $("paymentStatus").value =
+      "Unpaid";
+
+  }
+
+
+  if ($("orderStatus")) {
+
+    $("orderStatus").value =
+      "Created";
+
+  }
+
+
+  if ($("paymentMethod")) {
+
+    $("paymentMethod").value =
+      "Cash";
+
+  }
+
+
+  if ($("deliveryType")) {
+
+    $("deliveryType").value =
+      "Pickup";
+
+  }
+
+
+  if ($("deliveryDate")) {
+
+    $("deliveryDate").value = "";
+
+  }
+
+
+  if ($("notes")) {
+
+    $("notes").value = "";
+
+  }
+
+
+  updatePaymentFields();
+
+}
+
+
+/* =========================================================
+   FILL EDIT FORM
+   ========================================================= */
+
+function fillOrderForm(order) {
+
+  if ($("orderNo")) {
+
+    $("orderNo").value =
+      order.orderNo || "";
+
+  }
+
+
+  if ($("orderDate")) {
+
+    $("orderDate").value =
+      order.date || today();
+
+  }
+
+
+  if ($("customer")) {
+
+    $("customer").value =
+      order.customer || "";
+
+  }
+
+
+  if ($("mobile")) {
+
+    $("mobile").value =
+      order.mobile || "";
+
+  }
+
+
+  if ($("product")) {
+
+    $("product").value =
+      order.product || "";
+
+  }
+
+
+  if ($("qty")) {
+
+    $("qty").value =
+      order.qty || 1;
+
+  }
+
+
+  if ($("rate")) {
+
+    $("rate").value =
+      order.rate || 0;
+
+  }
+
+
+  if ($("total")) {
+
+    $("total").value =
+      order.total || 0;
+
+  }
+
+
+  if ($("advance")) {
+
+    $("advance").value =
+      order.advance || 0;
+
+  }
+
+
+  if ($("paymentStatus")) {
+
+    $("paymentStatus").value =
+      order.paymentStatus ||
+      "Unpaid";
+
+  }
+
+
+  if ($("orderStatus")) {
+
+    $("orderStatus").value =
+      order.orderStatus ||
+      "Created";
+
+  }
+
+
+  if ($("deliveryDate")) {
+
+    $("deliveryDate").value =
+      order.deliveryDate || "";
+
+  }
+
+
+  if ($("paymentMethod")) {
+
+    $("paymentMethod").value =
+      order.paymentMethod ||
+      "Cash";
+
+  }
+
+
+  if ($("deliveryType")) {
+
+    $("deliveryType").value =
+      order.deliveryType ||
+      "Pickup";
+
+  }
+
+
+  if ($("notes")) {
+
+    $("notes").value =
+      order.notes || "";
 
   }
 
@@ -628,148 +1781,19 @@ function closeModal() {
 
 
 /* =========================================================
-   RESET ORDER FORM
-   ========================================================= */
-
-function resetOrderForm() {
-
-
-  $("orderForm").reset();
-
-
-  $("editId").value = "";
-
-
-  $("orderNo").value =
-    generateOrderNumber();
-
-
-  $("orderDate").value =
-    today();
-
-
-  $("qty").value = 1;
-
-
-  $("rate").value = 0;
-
-
-  $("total").value = 0;
-
-
-  $("advance").value = 0;
-
-
-  $("paymentStatus").value =
-    "Unpaid";
-
-
-  $("orderStatus").value =
-    "Created";
-
-
-  $("paymentMethod").value =
-    "Cash";
-
-
-  $("deliveryType").value =
-    "Pickup";
-
-
-  $("deliveryDate").value =
-    "";
-
-
-  $("notes").value =
-    "";
-
-
-  updatePaymentFields();
-
-}
-
-
-/* =========================================================
-   FILL EDIT FORM
-   ========================================================= */
-
-function fillOrderForm(order) {
-
-
-  $("orderNo").value =
-    order.orderNo || "";
-
-
-  $("orderDate").value =
-    order.date || today();
-
-
-  $("customer").value =
-    order.customer || "";
-
-
-  $("mobile").value =
-    order.mobile || "";
-
-
-  $("product").value =
-    order.product || "";
-
-
-  $("qty").value =
-    order.qty || 1;
-
-
-  $("rate").value =
-    order.rate || 0;
-
-
-  $("total").value =
-    order.total || 0;
-
-
-  $("advance").value =
-    order.advance || 0;
-
-
-  $("paymentStatus").value =
-    order.paymentStatus ||
-    "Unpaid";
-
-
-  $("orderStatus").value =
-    order.orderStatus ||
-    "Created";
-
-
-  $("deliveryDate").value =
-    order.deliveryDate || "";
-
-
-  $("paymentMethod").value =
-    order.paymentMethod ||
-    "Cash";
-
-
-  $("deliveryType").value =
-    order.deliveryType ||
-    "Pickup";
-
-
-  $("notes").value =
-    order.notes || "";
-
-}
-
-
-/* =========================================================
-   AUTO CALCULATE TOTAL
+   TOTAL CALCULATION
    ========================================================= */
 
 function autoCalculateTotal() {
 
+  if (!$("qty") || !$("rate")) {
 
-  const quantity =
+    return;
+
+  }
+
+
+  const qty =
     Number(
       $("qty").value
     ) || 0;
@@ -781,12 +1805,13 @@ function autoCalculateTotal() {
     ) || 0;
 
 
-  const calculated =
-    quantity * rate;
+  if ($("total")) {
 
+    $("total").value =
+      (qty * rate)
+        .toFixed(2);
 
-  $("total").value =
-    calculated.toFixed(2);
+  }
 
 
   updatePaymentFields();
@@ -795,10 +1820,16 @@ function autoCalculateTotal() {
 
 
 /* =========================================================
-   UPDATE PAYMENT FIELDS
+   PAYMENT FIELD UPDATE
    ========================================================= */
 
 function updatePaymentFields() {
+
+  if (!$("total")) {
+
+    return;
+
+  }
 
 
   const total =
@@ -809,7 +1840,9 @@ function updatePaymentFields() {
 
   const advance =
     Number(
-      $("advance").value
+      $("advance")
+        ? $("advance").value
+        : 0
     ) || 0;
 
 
@@ -852,418 +1885,22 @@ function updatePaymentFields() {
 
 
 /* =========================================================
-   SAVE ORDER
-   ========================================================= */
-
-function saveOrder(event) {
-
-
-  event.preventDefault();
-
-
-  const editId =
-    $("editId").value;
-
-
-  const total =
-    Number(
-      $("total").value
-    ) || 0;
-
-
-  const advance =
-    Number(
-      $("advance").value
-    ) || 0;
-
-
-  /* Prevent advance greater than total */
-
-  if (advance > total && total > 0) {
-
-    alert(
-      "Advance Paid cannot be greater than Total Amount."
-    );
-
-    $("advance").focus();
-
-    return;
-
-  }
-
-
-  const paymentStatus =
-    calculatePaymentStatus(
-      total,
-      advance,
-      $("paymentStatus").value
-    );
-
-
-  const order = {
-
-    id:
-      editId ||
-      generateId(),
-
-    orderNo:
-      $("orderNo").value,
-
-    date:
-      $("orderDate").value,
-
-    customer:
-      $("customer").value.trim(),
-
-    mobile:
-      $("mobile").value.trim(),
-
-    product:
-      $("product").value,
-
-    qty:
-      Number(
-        $("qty").value
-      ) || 0,
-
-    rate:
-      Number(
-        $("rate").value
-      ) || 0,
-
-    total:
-      total,
-
-    advance:
-      advance,
-
-    balance:
-      calculateBalance(
-        total,
-        advance
-      ),
-
-    paymentStatus:
-      paymentStatus,
-
-    orderStatus:
-      $("orderStatus").value,
-
-    deliveryDate:
-      $("deliveryDate").value,
-
-    paymentMethod:
-      $("paymentMethod").value,
-
-    deliveryType:
-      $("deliveryType").value,
-
-    notes:
-      $("notes").value.trim(),
-
-    updatedAt:
-      new Date().toISOString()
-
-  };
-
-
-  /* Edit existing order */
-
-  if (editId) {
-
-    orders =
-      orders.map(
-        existing =>
-          existing.id === editId
-            ? order
-            : existing
-      );
-
-  }
-
-  /* New order */
-
-  else {
-
-    orders.unshift(order);
-
-  }
-
-
-  saveData();
-
-
-  closeModal();
-
-
-  renderEverything();
-
-
-  showPage("orders");
-
-
-}
-
-
-/* =========================================================
-   DELETE ORDER
-   ========================================================= */
-
-function deleteOrder(id) {
-
-
-  const order =
-    orders.find(
-      item => item.id === id
-    );
-
-
-  if (!order) {
-
-    return;
-
-  }
-
-
-  const confirmed =
-    confirm(
-      `Delete order ${order.orderNo}?`
-    );
-
-
-  if (!confirmed) {
-
-    return;
-
-  }
-
-
-  orders =
-    orders.filter(
-      item => item.id !== id
-    );
-
-
-  saveData();
-
-
-  renderEverything();
-
-}
-
-
-/* =========================================================
-   PRODUCT DROPDOWN
-   ========================================================= */
-
-function populateProductDropdown() {
-
-
-  if (!$("product")) {
-
-    return;
-
-  }
-
-
-  $("product").innerHTML =
-    products
-      .map(
-        product =>
-          `<option value="${escapeHTML(product)}">
-            ${escapeHTML(product)}
-          </option>`
-      )
-      .join("");
-
-}
-
-
-/* =========================================================
-   PRODUCT MANAGEMENT
-   ========================================================= */
-
-function addProduct() {
-
-
-  const input =
-    $("newProduct");
-
-
-  if (!input) {
-
-    return;
-
-  }
-
-
-  const product =
-    input.value.trim();
-
-
-  if (!product) {
-
-    alert(
-      "Please enter a product name."
-    );
-
-    return;
-
-  }
-
-
-  const exists =
-    products.some(
-      item =>
-        item.toLowerCase() ===
-        product.toLowerCase()
-    );
-
-
-  if (exists) {
-
-    alert(
-      "This product already exists."
-    );
-
-    return;
-
-  }
-
-
-  products.push(product);
-
-
-  saveData();
-
-
-  input.value = "";
-
-
-  populateProductDropdown();
-
-
-  renderProducts();
-
-
-  alert(
-    "Product added successfully."
-  );
-
-}
-
-
-/* =========================================================
-   REMOVE PRODUCT
-   ========================================================= */
-
-function removeProduct(index) {
-
-
-  if (
-    index < 0 ||
-    index >= products.length
-  ) {
-
-    return;
-
-  }
-
-
-  const product =
-    products[index];
-
-
-  const confirmed =
-    confirm(
-      `Remove "${product}" from the product list?`
-    );
-
-
-  if (!confirmed) {
-
-    return;
-
-  }
-
-
-  products.splice(
-    index,
-    1
-  );
-
-
-  saveData();
-
-
-  populateProductDropdown();
-
-
-  renderProducts();
-
-}
-
-
-/* =========================================================
-   RENDER EVERYTHING
-   ========================================================= */
-
-function renderEverything() {
-
-  renderDashboard();
-
-  renderOrders();
-
-  renderDaily();
-
-  renderWeekly();
-
-  renderMonthly();
-
-  renderProducts();
-
-}
-
-
-/* =========================================================
    DASHBOARD
    ========================================================= */
 
 function renderDashboard() {
 
-
-  const date =
-    today();
-
-
   const todayOrders =
     orders.filter(
       order =>
-        order.date === date
+        order.date ===
+        today()
     );
 
 
-  const todaySales =
-    todayOrders.reduce(
-      (sum, order) =>
-        sum + Number(order.total || 0),
-      0
-    );
-
-
-  const todayAdvance =
-    todayOrders.reduce(
-      (sum, order) =>
-        sum + Number(order.advance || 0),
-      0
-    );
-
-
-  const todayOutstanding =
-    todayOrders.reduce(
-      (sum, order) =>
-        sum + Number(order.balance ?? calculateBalance(order.total, order.advance)),
-      0
+  const totals =
+    calculateTotals(
+      todayOrders
     );
 
 
@@ -1279,38 +1916,46 @@ function renderDashboard() {
     );
 
 
-  $("dashCards").innerHTML =
+  if ($("dashCards")) {
 
-    dashboardCard(
-      "Today's Orders",
-      todayOrders.length
-    ) +
+    $("dashCards").innerHTML =
 
-    dashboardCard(
-      "Today's Sales",
-      money(todaySales)
-    ) +
+      dashboardCard(
+        "Today's Orders",
+        todayOrders.length
+      ) +
 
-    dashboardCard(
-      "Advance Collected",
-      money(todayAdvance)
-    ) +
+      dashboardCard(
+        "Today's Sales",
+        money(totals.total)
+      ) +
 
-    dashboardCard(
-      "Outstanding",
-      money(todayOutstanding)
-    ) +
+      dashboardCard(
+        "Advance Collected",
+        money(totals.advance)
+      ) +
 
-    dashboardCard(
-      "Active Orders",
-      activeOrders.length
-    );
+      dashboardCard(
+        "Outstanding",
+        money(totals.balance)
+      ) +
+
+      dashboardCard(
+        "Active Orders",
+        activeOrders.length
+      );
+
+  }
 
 
-  $("recentOrders").innerHTML =
-    createOrdersTable(
-      orders.slice(0, 8)
-    );
+  if ($("recentOrders")) {
+
+    $("recentOrders").innerHTML =
+      createOrdersTable(
+        orders.slice(0, 8)
+      );
+
+  }
 
 }
 
@@ -1349,6 +1994,12 @@ function dashboardCard(
 
 function renderOrders() {
 
+  if (!$("ordersTable")) {
+
+    return;
+
+  }
+
 
   const search =
     $("search")
@@ -1372,46 +2023,43 @@ function renderOrders() {
 
 
   const filtered =
-    orders.filter(order => {
+    orders.filter(
+      order => {
+
+        const searchable =
+          [
+            order.orderNo,
+            order.customer,
+            order.mobile,
+            order.product
+          ]
+            .join(" ")
+            .toLowerCase();
 
 
-      const searchable =
-        [
-          order.orderNo,
-          order.customer,
-          order.mobile,
-          order.product
-        ]
-          .join(" ")
-          .toLowerCase();
+        return (
 
+          (!search ||
+            searchable.includes(
+              search
+            ))
 
-      const matchesSearch =
-        !search ||
-        searchable.includes(
-          search
+          &&
+
+          (!statusFilter ||
+            order.orderStatus ===
+              statusFilter)
+
+          &&
+
+          (!paymentFilter ||
+            order.paymentStatus ===
+              paymentFilter)
+
         );
 
-
-      const matchesStatus =
-        !statusFilter ||
-        order.orderStatus ===
-          statusFilter;
-
-
-      const matchesPayment =
-        !paymentFilter ||
-        order.paymentStatus ===
-          paymentFilter;
-
-
-      return (
-        matchesSearch &&
-        matchesStatus &&
-        matchesPayment
-      );
-
-    });
+      }
+    );
 
 
   $("ordersTable").innerHTML =
@@ -1423,11 +2071,10 @@ function renderOrders() {
 
 
 /* =========================================================
-   DAILY ORDERS
+   DAILY
    ========================================================= */
 
 function renderDaily() {
-
 
   if (!$("dailyDate")) {
 
@@ -1436,23 +2083,26 @@ function renderDaily() {
   }
 
 
-  const selectedDate =
+  const date =
     $("dailyDate").value ||
     today();
 
 
-  const dailyOrders =
+  const list =
     orders.filter(
       order =>
-        order.date ===
-        selectedDate
+        order.date === date
     );
 
 
-  $("dailyTable").innerHTML =
-    createOrdersTable(
-      dailyOrders
-    );
+  if ($("dailyTable")) {
+
+    $("dailyTable").innerHTML =
+      createOrdersTable(
+        list
+      );
+
+  }
 
 }
 
@@ -1464,7 +2114,6 @@ function renderDaily() {
 function getWeekRange(
   dateString
 ) {
-
 
   const date =
     new Date(
@@ -1497,7 +2146,8 @@ function getWeekRange(
 
 
   end.setDate(
-    start.getDate() + 6
+    start.getDate() +
+    6
   );
 
 
@@ -1519,11 +2169,10 @@ function getWeekRange(
 
 
 /* =========================================================
-   WEEKLY SUMMARY
+   WEEKLY
    ========================================================= */
 
 function renderWeekly() {
-
 
   if (!$("weekDate")) {
 
@@ -1532,14 +2181,14 @@ function renderWeekly() {
   }
 
 
-  const selected =
+  const date =
     $("weekDate").value ||
     today();
 
 
   const range =
     getWeekRange(
-      selected
+      date
     );
 
 
@@ -1557,43 +2206,50 @@ function renderWeekly() {
     );
 
 
-  $("weeklyCards").innerHTML =
+  if ($("weeklyCards")) {
 
-    dashboardCard(
-      "Orders",
-      list.length
-    ) +
+    $("weeklyCards").innerHTML =
 
-    dashboardCard(
-      "Sales",
-      money(totals.total)
-    ) +
+      dashboardCard(
+        "Orders",
+        list.length
+      ) +
 
-    dashboardCard(
-      "Advance",
-      money(totals.advance)
-    ) +
+      dashboardCard(
+        "Sales",
+        money(totals.total)
+      ) +
 
-    dashboardCard(
-      "Outstanding",
-      money(totals.balance)
-    );
+      dashboardCard(
+        "Advance",
+        money(totals.advance)
+      ) +
+
+      dashboardCard(
+        "Outstanding",
+        money(totals.balance)
+      );
+
+  }
 
 
-  $("weeklyTable").innerHTML =
-    createSummaryTable(
-      list
-    );
+  if ($("weeklyTable")) {
+
+    $("weeklyTable").innerHTML =
+      createSummaryTable(
+        list
+      );
+
+  }
 
 }
 
 
 /* =========================================================
-   MONTHLY SUMMARY
+   MONTHLY
    ========================================================= */
 
 function renderMonthly() {
-
 
   if (!$("monthDate")) {
 
@@ -1602,7 +2258,7 @@ function renderMonthly() {
   }
 
 
-  const selected =
+  const month =
     $("monthDate").value ||
     currentMonth();
 
@@ -1611,7 +2267,7 @@ function renderMonthly() {
     orders.filter(
       order =>
         order.date.startsWith(
-          selected
+          month
         )
     );
 
@@ -1638,55 +2294,62 @@ function renderMonthly() {
     ).length;
 
 
-  $("monthlyCards").innerHTML =
+  if ($("monthlyCards")) {
 
-    dashboardCard(
-      "Orders",
-      list.length
-    ) +
+    $("monthlyCards").innerHTML =
 
-    dashboardCard(
-      "Sales",
-      money(totals.total)
-    ) +
+      dashboardCard(
+        "Orders",
+        list.length
+      ) +
 
-    dashboardCard(
-      "Advance",
-      money(totals.advance)
-    ) +
+      dashboardCard(
+        "Sales",
+        money(totals.total)
+      ) +
 
-    dashboardCard(
-      "Outstanding",
-      money(totals.balance)
-    ) +
+      dashboardCard(
+        "Advance",
+        money(totals.advance)
+      ) +
 
-    dashboardCard(
-      "Delivered",
-      delivered
-    ) +
+      dashboardCard(
+        "Outstanding",
+        money(totals.balance)
+      ) +
 
-    dashboardCard(
-      "RTO",
-      rto
-    );
+      dashboardCard(
+        "Delivered",
+        delivered
+      ) +
+
+      dashboardCard(
+        "RTO",
+        rto
+      );
+
+  }
 
 
-  $("monthlyTable").innerHTML =
-    createSummaryTable(
-      list
-    );
+  if ($("monthlyTable")) {
+
+    $("monthlyTable").innerHTML =
+      createSummaryTable(
+        list
+      );
+
+  }
 
 }
 
 
 /* =========================================================
-   CALCULATE TOTALS
+   TOTALS
    ========================================================= */
 
 function calculateTotals(
   list
 ) {
-
 
   let total = 0;
 
@@ -1703,10 +2366,12 @@ function calculateTotals(
           order.total || 0
         );
 
+
       advance +=
         Number(
           order.advance || 0
         );
+
 
       balance +=
         Number(
@@ -1735,21 +2400,22 @@ function calculateTotals(
 
 
 /* =========================================================
-   ORDERS TABLE
+   ORDER TABLE
    ========================================================= */
 
 function createOrdersTable(
   list
 ) {
 
-
   if (!list.length) {
 
     return `
 
-      <p>
+      <div class="empty-state">
+
         No orders found.
-      </p>
+
+      </div>
 
     `;
 
@@ -1758,51 +2424,52 @@ function createOrdersTable(
 
   return `
 
-    <table class="table">
+    <div class="table-wrap">
 
-      <thead>
+      <table class="table">
 
-        <tr>
+        <thead>
 
-          <th>Order</th>
+          <tr>
 
-          <th>Date</th>
+            <th>Order</th>
 
-          <th>Customer</th>
+            <th>Date</th>
 
-          <th>Product</th>
+            <th>Customer</th>
 
-          <th>Total</th>
+            <th>Product</th>
 
-          <th>Advance</th>
+            <th>Total</th>
 
-          <th>Balance</th>
+            <th>Advance</th>
 
-          <th>Payment</th>
+            <th>Balance</th>
 
-          <th>Status</th>
+            <th>Payment</th>
 
-          <th>Action</th>
+            <th>Status</th>
 
-        </tr>
+            <th>Action</th>
 
-      </thead>
+          </tr>
+
+        </thead>
 
 
-      <tbody>
+        <tbody>
 
-        ${list
-          .map(
-            order =>
-              createOrderRow(
-                order
-              )
-          )
-          .join("")}
+          ${list
+            .map(
+              createOrderRow
+            )
+            .join("")}
 
-      </tbody>
+        </tbody>
 
-    </table>
+      </table>
+
+    </div>
 
   `;
 
@@ -1817,7 +2484,6 @@ function createOrderRow(
   order
 ) {
 
-
   const balance =
     order.balance ??
     calculateBalance(
@@ -1831,9 +2497,11 @@ function createOrderRow(
     <tr>
 
       <td>
+
         <strong>
           ${escapeHTML(order.orderNo)}
         </strong>
+
       </td>
 
 
@@ -1843,12 +2511,33 @@ function createOrderRow(
 
 
       <td>
-        ${escapeHTML(order.customer)}
+
+        <strong>
+          ${escapeHTML(order.customer)}
+        </strong>
+
+        ${
+          order.mobile
+            ? `<br>
+               <small>
+                 ${escapeHTML(order.mobile)}
+               </small>`
+            : ""
+        }
+
       </td>
 
 
       <td>
+
         ${escapeHTML(order.product)}
+
+        <br>
+
+        <small>
+          Qty: ${escapeHTML(order.qty)}
+        </small>
+
       </td>
 
 
@@ -1870,7 +2559,11 @@ function createOrderRow(
       <td>
 
         <span class="pill">
-          ${escapeHTML(order.paymentStatus)}
+
+          ${escapeHTML(
+            order.paymentStatus
+          )}
+
         </span>
 
       </td>
@@ -1879,7 +2572,11 @@ function createOrderRow(
       <td>
 
         <span class="pill">
-          ${escapeHTML(order.orderStatus)}
+
+          ${escapeHTML(
+            order.orderStatus
+          )}
+
         </span>
 
       </td>
@@ -1889,19 +2586,17 @@ function createOrderRow(
 
         <button
           class="action"
-          onclick="openOrder('${escapeHTML(order.id)}')">
-
+          onclick="openOrder('${escapeHTML(order.id)}')"
+        >
           Edit
-
         </button>
 
 
         <button
           class="action danger"
-          onclick="deleteOrder('${escapeHTML(order.id)}')">
-
+          onclick="deleteOrder('${escapeHTML(order.id)}')"
+        >
           Delete
-
         </button>
 
       </td>
@@ -1921,14 +2616,15 @@ function createSummaryTable(
   list
 ) {
 
-
   if (!list.length) {
 
     return `
 
-      <p>
+      <div class="empty-state">
+
         No orders for this period.
-      </p>
+
+      </div>
 
     `;
 
@@ -1938,51 +2634,52 @@ function createSummaryTable(
   const daily = {};
 
 
-  list.forEach(order => {
+  list.forEach(
+    order => {
+
+      if (!daily[order.date]) {
+
+        daily[order.date] = {
+
+          count: 0,
+
+          total: 0,
+
+          advance: 0,
+
+          balance: 0
+
+        };
+
+      }
 
 
-    if (!daily[order.date]) {
+      daily[order.date].count++;
 
-      daily[order.date] = {
 
-        count: 0,
+      daily[order.date].total +=
+        Number(
+          order.total || 0
+        );
 
-        total: 0,
 
-        advance: 0,
+      daily[order.date].advance +=
+        Number(
+          order.advance || 0
+        );
 
-        balance: 0
 
-      };
+      daily[order.date].balance +=
+        Number(
+          order.balance ??
+          calculateBalance(
+            order.total,
+            order.advance
+          )
+        );
 
     }
-
-
-    daily[order.date].count++;
-
-
-    daily[order.date].total +=
-      Number(
-        order.total || 0
-      );
-
-
-    daily[order.date].advance +=
-      Number(
-        order.advance || 0
-      );
-
-
-    daily[order.date].balance +=
-      Number(
-        order.balance ??
-        calculateBalance(
-          order.total,
-          order.advance
-        )
-      );
-
-  });
+  );
 
 
   const dates =
@@ -1992,72 +2689,76 @@ function createSummaryTable(
 
   return `
 
-    <table class="table">
+    <div class="table-wrap">
 
-      <thead>
+      <table class="table">
 
-        <tr>
+        <thead>
 
-          <th>Date</th>
+          <tr>
 
-          <th>Orders</th>
+            <th>Date</th>
 
-          <th>Sales</th>
+            <th>Orders</th>
 
-          <th>Advance</th>
+            <th>Sales</th>
 
-          <th>Outstanding</th>
+            <th>Advance</th>
 
-        </tr>
+            <th>Outstanding</th>
 
-      </thead>
+          </tr>
 
-
-      <tbody>
-
-        ${dates
-          .map(
-            date => {
-
-              const row =
-                daily[date];
+        </thead>
 
 
-              return `
+        <tbody>
 
-                <tr>
+          ${dates
+            .map(
+              date => {
 
-                  <td>
-                    ${escapeHTML(date)}
-                  </td>
+                const row =
+                  daily[date];
 
-                  <td>
-                    ${row.count}
-                  </td>
 
-                  <td>
-                    ${money(row.total)}
-                  </td>
+                return `
 
-                  <td>
-                    ${money(row.advance)}
-                  </td>
+                  <tr>
 
-                  <td>
-                    ${money(row.balance)}
-                  </td>
+                    <td>
+                      ${escapeHTML(date)}
+                    </td>
 
-                </tr>
+                    <td>
+                      ${row.count}
+                    </td>
 
-              `;
+                    <td>
+                      ${money(row.total)}
+                    </td>
 
-            }
-          )
-          .join("")}
+                    <td>
+                      ${money(row.advance)}
+                    </td>
 
-      </tbody>
+                    <td>
+                      ${money(row.balance)}
+                    </td>
 
-    </table>
+                  </tr>
+
+                `;
+
+              }
+            )
+            .join("")}
+
+        </tbody>
+
+      </table>
+
+    </div>
 
   `;
 
@@ -2065,11 +2766,10 @@ function createSummaryTable(
 
 
 /* =========================================================
-   PRODUCTS PAGE
+   PRODUCTS
    ========================================================= */
 
 function renderProducts() {
-
 
   if (!$("productList")) {
 
@@ -2080,17 +2780,11 @@ function renderProducts() {
 
   if (!products.length) {
 
-    $("productList").innerHTML = `
+    $("productList").innerHTML =
 
-      <p style="
-        padding:25px;
-        text-align:center;
-        color:#777;
-      ">
+      `<div class="empty-state">
         No products added.
-      </p>
-
-    `;
+       </div>`;
 
     return;
 
@@ -2099,21 +2793,24 @@ function renderProducts() {
 
   $("productList").innerHTML =
     products
+      .filter(
+        product =>
+          product.active
+      )
       .map(
-        (product, index) => `
+        product => `
 
           <div class="product-row">
 
             <span>
-              ${escapeHTML(product)}
+              ${escapeHTML(product.name)}
             </span>
 
             <button
               class="action danger"
-              onclick="removeProduct(${index})">
-
+              onclick="removeProduct('${escapeHTML(product.id)}')"
+            >
               Remove
-
             </button>
 
           </div>
@@ -2126,70 +2823,890 @@ function renderProducts() {
 
 
 /* =========================================================
-   KEYBOARD SHORTCUT
+   REALTIME SYNCHRONIZATION
    ========================================================= */
 
-document.addEventListener(
-  "keydown",
-  function(event) {
+function startRealtime() {
 
+  if (realtimeChannel) {
 
-    /* Escape closes modal */
+    supabaseClient
+      .removeChannel(
+        realtimeChannel
+      );
 
-    if (
-      event.key === "Escape"
-    ) {
-
-      closeModal();
-
-    }
-
-
-    /* Ctrl + N opens order */
-
-    if (
-      event.ctrlKey &&
-      event.key.toLowerCase() === "n"
-    ) {
-
-      event.preventDefault();
-
-      openOrder();
-
-    }
+    realtimeChannel = null;
 
   }
-);
+
+
+  realtimeChannel =
+    supabaseClient
+      .channel(
+        "woge-orders-realtime"
+      )
+
+
+      /* ==============================================
+         ORDERS
+         ============================================== */
+
+      .on(
+
+        "postgres_changes",
+
+        {
+          event: "*",
+
+          schema: "public",
+
+          table: "orders"
+
+        },
+
+        async payload => {
+
+          console.log(
+            "Realtime order change:",
+            payload
+          );
+
+
+          await loadOrders();
+
+        }
+
+      )
+
+
+      /* ==============================================
+         PRODUCTS
+         ============================================== */
+
+      .on(
+
+        "postgres_changes",
+
+        {
+          event: "*",
+
+          schema: "public",
+
+          table: "products"
+
+        },
+
+        async payload => {
+
+          console.log(
+            "Realtime product change:",
+            payload
+          );
+
+
+          await loadProducts();
+
+        }
+
+      )
+
+
+      .subscribe(
+        status => {
+
+          console.log(
+            "Realtime status:",
+            status
+          );
+
+        }
+      );
+
+}
 
 
 /* =========================================================
-   CLICK OUTSIDE MODAL
+   AUTH STATE
    ========================================================= */
 
-document.addEventListener(
-  "click",
-  function(event) {
+function setupAuthListener() {
+
+  supabaseClient.auth
+    .onAuthStateChange(
+      async (
+        event,
+        session
+      ) => {
+
+        console.log(
+          "Auth event:",
+          event
+        );
 
 
-    const modal =
-      $("modal");
+        if (session?.user) {
+
+          currentUser =
+            session.user;
+
+          hideLoginScreen();
+
+        }
+
+        else {
+
+          currentUser = null;
+
+          showLoginScreen();
+
+        }
+
+      }
+    );
+
+}
 
 
-    if (
-      modal &&
-      event.target === modal
-    ) {
+/* =========================================================
+   LOGOUT BUTTON
+   ========================================================= */
 
-      closeModal();
+function addLogoutButton() {
 
-    }
+  /*
+    We intentionally add a small logout
+    button to the page rather than changing
+    your existing HTML layout.
+  */
+
+
+  if (
+    document.getElementById(
+      "wogeLogoutButton"
+    )
+  ) {
+
+    return;
 
   }
-);
+
+
+  const button =
+    document.createElement("button");
+
+
+  button.id =
+    "wogeLogoutButton";
+
+
+  button.textContent =
+    "Logout";
+
+
+  button.onclick =
+    logoutUser;
+
+
+  button.style.cssText = `
+
+    position: fixed;
+
+    bottom: 18px;
+
+    right: 18px;
+
+    z-index: 9000;
+
+    padding: 8px 14px;
+
+    border-radius: 7px;
+
+    border: 1px solid
+      rgba(212,175,55,.45);
+
+    background: #111;
+
+    color: #d4af37;
+
+    font-size: 11px;
+
+    cursor: pointer;
+
+  `;
+
+
+  document.body.appendChild(
+    button
+  );
+
+}
+
+
+/* =========================================================
+   SETUP DROPDOWNS
+   ========================================================= */
+
+function setupDropdowns() {
+
+  if ($("orderStatus")) {
+
+    $("orderStatus").innerHTML =
+      ORDER_STATUSES
+        .map(
+          status =>
+            `<option value="${escapeHTML(status)}">
+              ${escapeHTML(status)}
+            </option>`
+        )
+        .join("");
+
+  }
+
+
+  if ($("statusFilter")) {
+
+    $("statusFilter").innerHTML =
+
+      `<option value="">
+        All Order Status
+      </option>` +
+
+      ORDER_STATUSES
+        .map(
+          status =>
+            `<option value="${escapeHTML(status)}">
+              ${escapeHTML(status)}
+            </option>`
+        )
+        .join("");
+
+  }
+
+
+  if ($("paymentStatus")) {
+
+    $("paymentStatus").innerHTML =
+
+      PAYMENT_STATUSES
+        .map(
+          status =>
+            `<option value="${escapeHTML(status)}">
+              ${escapeHTML(status)}
+            </option>`
+        )
+        .join("");
+
+  }
+
+
+  if ($("paymentFilter")) {
+
+    $("paymentFilter").innerHTML =
+
+      `<option value="">
+        All Payment Status
+      </option>` +
+
+      PAYMENT_STATUSES
+        .map(
+          status =>
+            `<option value="${escapeHTML(status)}">
+              ${escapeHTML(status)}
+            </option>`
+        )
+        .join("");
+
+  }
+
+
+  if ($("paymentMethod")) {
+
+    $("paymentMethod").innerHTML =
+      PAYMENT_METHODS
+        .map(
+          method =>
+            `<option value="${escapeHTML(method)}">
+              ${escapeHTML(method)}
+            </option>`
+        )
+        .join("");
+
+  }
+
+
+  if ($("deliveryType")) {
+
+    $("deliveryType").innerHTML =
+      DELIVERY_TYPES
+        .map(
+          type =>
+            `<option value="${escapeHTML(type)}">
+              ${escapeHTML(type)}
+            </option>`
+        )
+        .join("");
+
+  }
+
+
+  populateProductDropdown();
+
+}
+
+
+/* =========================================================
+   EVENT LISTENERS
+   ========================================================= */
+
+function setupEvents() {
+
+
+  /* Navigation */
+
+  document
+    .querySelectorAll(".tab")
+    .forEach(
+      button => {
+
+        button.addEventListener(
+          "click",
+          function () {
+
+            showPage(
+              this.dataset.page
+            );
+
+          }
+        );
+
+      }
+    );
+
+
+  /* Order form */
+
+  if ($("orderForm")) {
+
+    $("orderForm")
+      .addEventListener(
+        "submit",
+        saveOrder
+      );
+
+  }
+
+
+  /* Quantity */
+
+  if ($("qty")) {
+
+    $("qty")
+      .addEventListener(
+        "input",
+        autoCalculateTotal
+      );
+
+  }
+
+
+  /* Rate */
+
+  if ($("rate")) {
+
+    $("rate")
+      .addEventListener(
+        "input",
+        autoCalculateTotal
+      );
+
+  }
+
+
+  /* Total */
+
+  if ($("total")) {
+
+    $("total")
+      .addEventListener(
+        "input",
+        updatePaymentFields
+      );
+
+  }
+
+
+  /* Advance */
+
+  if ($("advance")) {
+
+    $("advance")
+      .addEventListener(
+        "input",
+        updatePaymentFields
+      );
+
+  }
+
+
+  /* Payment status */
+
+  if ($("paymentStatus")) {
+
+    $("paymentStatus")
+      .addEventListener(
+        "change",
+        updatePaymentFields
+      );
+
+  }
+
+
+  /* Search */
+
+  if ($("search")) {
+
+    $("search")
+      .addEventListener(
+        "input",
+        renderOrders
+      );
+
+  }
+
+
+  /* Status filter */
+
+  if ($("statusFilter")) {
+
+    $("statusFilter")
+      .addEventListener(
+        "change",
+        renderOrders
+      );
+
+  }
+
+
+  /* Payment filter */
+
+  if ($("paymentFilter")) {
+
+    $("paymentFilter")
+      .addEventListener(
+        "change",
+        renderOrders
+      );
+
+  }
+
+
+  /* Daily date */
+
+  if ($("dailyDate")) {
+
+    $("dailyDate")
+      .addEventListener(
+        "change",
+        renderDaily
+      );
+
+  }
+
+
+  /* Weekly date */
+
+  if ($("weekDate")) {
+
+    $("weekDate")
+      .addEventListener(
+        "change",
+        renderWeekly
+      );
+
+  }
+
+
+  /* Monthly date */
+
+  if ($("monthDate")) {
+
+    $("monthDate")
+      .addEventListener(
+        "change",
+        renderMonthly
+      );
+
+  }
+
+
+  /* Escape closes modal */
+
+  document.addEventListener(
+    "keydown",
+    event => {
+
+      if (
+        event.key ===
+        "Escape"
+      ) {
+
+        closeModal();
+
+      }
+
+
+      if (
+        event.ctrlKey &&
+        event.key.toLowerCase() ===
+          "n"
+      ) {
+
+        event.preventDefault();
+
+        openOrder();
+
+      }
+
+    }
+  );
+
+
+  /* Click outside modal */
+
+  document.addEventListener(
+    "click",
+    event => {
+
+      const modal =
+        $("modal");
+
+
+      if (
+        modal &&
+        event.target === modal
+      ) {
+
+        closeModal();
+
+      }
+
+    }
+  );
+
+}
+
+
+/* =========================================================
+   PAGE NAVIGATION
+   ========================================================= */
+
+function showPage(
+  pageName
+) {
+
+  document
+    .querySelectorAll(".page")
+    .forEach(
+      page => {
+
+        page.classList.remove(
+          "active"
+        );
+
+      }
+    );
+
+
+  document
+    .querySelectorAll(".tab")
+    .forEach(
+      tab => {
+
+        tab.classList.remove(
+          "active"
+        );
+
+      }
+    );
+
+
+  const page =
+    $(pageName);
+
+
+  if (page) {
+
+    page.classList.add(
+      "active"
+    );
+
+  }
+
+
+  const activeTab =
+    document.querySelector(
+      `.tab[data-page="${pageName}"]`
+    );
+
+
+  if (activeTab) {
+
+    activeTab.classList.add(
+      "active"
+    );
+
+  }
+
+
+  renderEverything();
+
+}
+
+
+/* =========================================================
+   RENDER EVERYTHING
+   ========================================================= */
+
+function renderEverything() {
+
+  renderDashboard();
+
+  renderOrders();
+
+  renderDaily();
+
+  renderWeekly();
+
+  renderMonthly();
+
+  renderProducts();
+
+}
+
+
+/* =========================================================
+   DATABASE ERROR
+   ========================================================= */
+
+function showDatabaseError(
+  message
+) {
+
+  console.error(
+    message
+  );
+
+
+  const existing =
+    document.getElementById(
+      "wogeDatabaseError"
+    );
+
+
+  if (existing) {
+
+    existing.textContent =
+      message;
+
+    return;
+
+  }
+
+
+  const error =
+    document.createElement("div");
+
+
+  error.id =
+    "wogeDatabaseError";
+
+
+  error.textContent =
+    message;
+
+
+  error.style.cssText = `
+
+    position: fixed;
+
+    top: 15px;
+
+    left: 50%;
+
+    transform: translateX(-50%);
+
+    z-index: 99999;
+
+    padding: 10px 18px;
+
+    border: 1px solid
+      #8d6d20;
+
+    border-radius: 8px;
+
+    background: #181818;
+
+    color: #e4bd4e;
+
+    font-size: 12px;
+
+  `;
+
+
+  document.body.appendChild(
+    error
+  );
+
+}
 
 
 /* =========================================================
    START APPLICATION
    ========================================================= */
 
-setupApplication();
+async function startApplication() {
+
+  console.log(
+    "Starting WOGE Order Manager..."
+  );
+
+
+  setupDropdowns();
+
+  setupEvents();
+
+  addLogoutButton();
+
+
+  if ($("dailyDate")) {
+
+    $("dailyDate").value =
+      today();
+
+  }
+
+
+  if ($("weekDate")) {
+
+    $("weekDate").value =
+      today();
+
+  }
+
+
+  if ($("monthDate")) {
+
+    $("monthDate").value =
+      currentMonth();
+
+  }
+
+
+  await loadProducts();
+
+  await loadOrders();
+
+
+  startRealtime();
+
+
+  console.log(
+    "WOGE Order Manager ready."
+  );
+
+}
+
+
+/* =========================================================
+   APPLICATION BOOT
+   ========================================================= */
+
+async function boot() {
+
+  console.log(
+    "WOGE Cloud Application booting..."
+  );
+
+
+  addLoginStyles();
+
+  createLoginScreen();
+
+  setupAuthListener();
+
+
+  const {
+    data
+  } =
+    await supabaseClient.auth
+      .getSession();
+
+
+  if (
+    data &&
+    data.session &&
+    data.session.user
+  ) {
+
+    currentUser =
+      data.session.user;
+
+
+    hideLoginScreen();
+
+
+    await startApplication();
+
+  }
+
+  else {
+
+    showLoginScreen();
+
+  }
+
+}
+
+
+/* =========================================================
+   GLOBAL FUNCTIONS
+   =========================================================
+
+   These are intentionally exposed so
+   your existing HTML onclick="" buttons
+   continue working.
+   ========================================================= */
+
+window.openOrder =
+  openOrder;
+
+window.closeModal =
+  closeModal;
+
+window.deleteOrder =
+  deleteOrder;
+
+window.addProduct =
+  addProduct;
+
+window.removeProduct =
+  removeProduct;
+
+window.showPage =
+  showPage;
+
+window.logoutUser =
+  logoutUser;
+
+window.updatePaymentFields =
+  updatePaymentFields;
+
+window.autoCalculateTotal =
+  autoCalculateTotal;
+
+
+/* =========================================================
+   GO
+   ========================================================= */
+
+boot();
