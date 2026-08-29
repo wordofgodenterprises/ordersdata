@@ -310,9 +310,14 @@ function databaseOrderToApp(row) {
       Number(row.total_amount || 0),
 
     finalPrice:
-      Number(row.quantity || 0) > 0
-        ? Number(row.total_amount || 0) / Number(row.quantity || 1)
-        : Number(row.total_amount || 0),
+      row.final_price !== null &&
+      row.final_price !== undefined
+        ? Number(row.final_price || 0)
+        : (
+            Number(row.quantity || 0) > 0
+              ? Number(row.total_amount || 0) / Number(row.quantity || 1)
+              : Number(row.total_amount || 0)
+          ),
 
     advance:
       Number(row.advance_paid || 0),
@@ -1060,7 +1065,9 @@ async function saveOrder(event) {
     quantity: qty,
     rate: productPrice,
     total_amount: total,
+    final_price: finalPrice,
     advance_paid: advance,
+    balance_due: calculateBalance(total, advance),
     payment_status: paymentStatus,
     order_status: $("orderStatus").value || "Created",
     delivery_date: $("deliveryDate").value || null,
@@ -1498,6 +1505,10 @@ function resetOrderForm() {
 
   }
 
+  // Reset first, then apply the selected product's catalog price.
+  // This prevents the product dropdown from being reset while the
+  // Product Price / Final Price fields remain at ₹0.
+  setRateFromSelectedProduct();
 
   updatePaymentFields();
 
@@ -2691,23 +2702,259 @@ function printDashboardReport() {
 
   const todayOrders = orders.filter(order => order.date === today());
   const totals = calculateTotals(todayOrders);
-  const activeOrders = orders.filter(order => !["Delivered", "RTO"].includes(order.orderStatus));
+  const activeOrders = orders.filter(
+    order => !["Delivered", "RTO"].includes(order.orderStatus)
+  );
 
-  const rows = orders.slice(0, 50).map(order => {
-    const finalPrice = order.finalPrice ?? (Number(order.qty || 1) > 0 ? Number(order.total || 0) / Number(order.qty || 1) : 0);
-    const balance = order.balance ?? calculateBalance(order.total, order.advance);
-    return `<tr><td>${escapeHTML(order.orderNo)}</td><td>${escapeHTML(formatDisplayDate(order.date))}</td><td>${escapeHTML(order.customer)}</td><td>${escapeHTML(order.product)}</td><td class="right">${money(order.rate)}</td><td class="right">${money(finalPrice)}</td><td class="right">${money(order.total)}</td><td class="right">${money(order.advance)}</td><td class="right">${money(balance)}</td><td>${escapeHTML(order.orderStatus || "")}</td></tr>`;
+  const rows = orders.map(order => {
+    const qty = Number(order.qty || 1) || 1;
+    const finalPrice =
+      order.finalPrice !== undefined && order.finalPrice !== null
+        ? Number(order.finalPrice || 0)
+        : Number(order.total || 0) / qty;
+
+    const balance =
+      order.balance !== undefined && order.balance !== null
+        ? Number(order.balance || 0)
+        : calculateBalance(order.total, order.advance);
+
+    return `
+      <tr>
+        <td>${escapeHTML(order.orderNo)}</td>
+        <td>${escapeHTML(formatDisplayDate(order.date))}</td>
+        <td><strong>${escapeHTML(order.customer)}</strong>${order.mobile ? `<br><span class="muted">${escapeHTML(order.mobile)}</span>` : ""}</td>
+        <td>${escapeHTML(order.product)}<br><span class="muted">Qty: ${escapeHTML(order.qty)}</span></td>
+        <td class="right">${money(order.rate)}</td>
+        <td class="right"><strong>${money(finalPrice)}</strong></td>
+        <td class="right"><strong>${money(order.total)}</strong></td>
+        <td class="right">${money(order.advance)}</td>
+        <td class="right">${money(balance)}</td>
+        <td>${escapeHTML(order.paymentStatus || "")}</td>
+        <td>${escapeHTML(order.orderStatus || "")}</td>
+      </tr>`;
   }).join("");
 
   const printWindow = window.open("", "_blank");
+
   if (!printWindow) {
     alert("Please allow pop-ups to print or save the dashboard PDF.");
     return;
   }
 
-  printWindow.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>WOGE Order Manager Dashboard</title><style>
-@page{size:A4 landscape;margin:10mm}*{box-sizing:border-box}body{margin:0;font-family:Arial,Helvetica,sans-serif;color:#161616;background:#fff;font-size:9px}.header{border-bottom:3px solid #c9a227;padding-bottom:10px;margin-bottom:12px}.brand{font-size:10px;font-weight:700;letter-spacing:2px}h1{margin:3px 0 2px;font-family:Georgia,serif;font-size:24px}.sub{color:#666;font-size:9px}.cards{display:grid;grid-template-columns:repeat(5,1fr);gap:7px;margin:12px 0}.card{border:1px solid #d6d6d6;border-radius:5px;padding:9px}.label{color:#666;text-transform:uppercase;font-size:7px;letter-spacing:1px}.value{font-size:14px;font-weight:700;margin-top:5px}table{width:100%;border-collapse:collapse;margin-top:10px}th{background:#151515;color:#fff;text-align:left;font-size:7px;text-transform:uppercase;letter-spacing:.5px;padding:6px 5px}td{border-bottom:1px solid #ddd;padding:5px;vertical-align:top}.right{text-align:right}.footer{margin-top:12px;border-top:1px solid #ccc;padding-top:7px;display:flex;justify-content:space-between;color:#777;font-size:7px}@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
-</style></head><body><div class="header"><div class="brand">WORD OF GOD ENTERPRISES</div><h1>WOGE ORDER MANAGER</h1><div class="sub">Dashboard Report • ${escapeHTML(formatDisplayDate(today()))}</div></div><div class="cards"><div class="card"><div class="label">Today’s Orders</div><div class="value">${todayOrders.length}</div></div><div class="card"><div class="label">Today’s Sales</div><div class="value">${money(totals.total)}</div></div><div class="card"><div class="label">Advance Collected</div><div class="value">${money(totals.advance)}</div></div><div class="card"><div class="label">Outstanding</div><div class="value">${money(totals.balance)}</div></div><div class="card"><div class="label">Active Orders</div><div class="value">${activeOrders.length}</div></div></div><table><thead><tr><th>Order</th><th>Date</th><th>Customer</th><th>Product</th><th>Product Price</th><th>Final Price</th><th>Total</th><th>Advance</th><th>Balance</th><th>Status</th></tr></thead><tbody>${rows || '<tr><td colspan="10" style="text-align:center">No orders found.</td></tr>'}</tbody></table><div class="footer"><span>WORD OF GOD ENTERPRISES • WOGE ORDER MANAGER</span><span>Generated: ${escapeHTML(new Date().toLocaleString("en-IN"))}</span></div><script>window.onload=function(){setTimeout(function(){window.print();},400);};<\/script></body></html>`);
+  printWindow.document.write(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>WOGE Order Manager - Dashboard Report</title>
+<style>
+  @page { size: A4 landscape; margin: 9mm; }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #fff;
+    color: #161616;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 9px;
+  }
+
+  .page {
+    width: 100%;
+  }
+
+  .header {
+    border-bottom: 2px solid #c9a227;
+    padding-bottom: 8px;
+    margin-bottom: 10px;
+  }
+
+  .brand {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 2.2px;
+  }
+
+  .title {
+    margin: 3px 0 2px;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 23px;
+    font-weight: 800;
+    letter-spacing: -.2px;
+  }
+
+  .subtitle {
+    color: #666;
+    font-size: 8px;
+  }
+
+  .summary {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px;
+    margin: 10px 0 11px;
+  }
+
+  .summary-card {
+    border: 1px solid #d4d0c7;
+    background: #f8f7f3;
+    padding: 7px 8px;
+  }
+
+  .summary-label {
+    color: #666;
+    font-size: 6.5px;
+    font-weight: 800;
+    letter-spacing: .8px;
+    text-transform: uppercase;
+  }
+
+  .summary-value {
+    margin-top: 3px;
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  tr {
+    page-break-inside: avoid;
+  }
+
+  th {
+    background: #181818;
+    color: #fff;
+    border: 1px solid #181818;
+    padding: 5px 4px;
+    text-align: left;
+    font-size: 6.5px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .35px;
+  }
+
+  td {
+    border: 1px solid #d7d7d7;
+    padding: 5px 4px;
+    vertical-align: top;
+    font-size: 7.5px;
+    line-height: 1.25;
+    word-break: break-word;
+  }
+
+  tbody tr:nth-child(even) td {
+    background: #f7f7f7;
+  }
+
+  .right { text-align: right; }
+  .muted { color: #777; font-size: 6.5px; }
+
+  th:nth-child(1) { width: 8%; }
+  th:nth-child(2) { width: 7%; }
+  th:nth-child(3) { width: 12%; }
+  th:nth-child(4) { width: 14%; }
+  th:nth-child(5) { width: 9%; }
+  th:nth-child(6) { width: 9%; }
+  th:nth-child(7) { width: 9%; }
+  th:nth-child(8) { width: 8%; }
+  th:nth-child(9) { width: 8%; }
+  th:nth-child(10) { width: 8%; }
+  th:nth-child(11) { width: 8%; }
+
+  .footer {
+    display: flex;
+    justify-content: space-between;
+    gap: 20px;
+    margin-top: 9px;
+    padding-top: 6px;
+    border-top: 1px solid #bbb;
+    color: #666;
+    font-size: 6.5px;
+  }
+
+  @media print {
+    body {
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="header">
+    <div class="brand">WORD OF GOD ENTERPRISES</div>
+    <div class="title">WOGE ORDER MANAGER</div>
+    <div class="subtitle">Dashboard Report &nbsp;•&nbsp; ${escapeHTML(formatDisplayDate(today()))}</div>
+  </div>
+
+  <div class="summary">
+    <div class="summary-card">
+      <div class="summary-label">Today's Orders</div>
+      <div class="summary-value">${todayOrders.length}</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-label">Today's Sales</div>
+      <div class="summary-value">${money(totals.total)}</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-label">Advance Collected</div>
+      <div class="summary-value">${money(totals.advance)}</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-label">Outstanding</div>
+      <div class="summary-value">${money(totals.balance)}</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-label">Active Orders</div>
+      <div class="summary-value">${activeOrders.length}</div>
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Order</th>
+        <th>Date</th>
+        <th>Customer</th>
+        <th>Product</th>
+        <th>Product Price</th>
+        <th>Final Price</th>
+        <th>Total</th>
+        <th>Advance</th>
+        <th>Balance</th>
+        <th>Payment</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rows || '<tr><td colspan="11" style="text-align:center;padding:12px;">No orders found.</td></tr>'}
+    </tbody>
+  </table>
+
+  <div class="footer">
+    <span>WORD OF GOD ENTERPRISES &nbsp;•&nbsp; WOGE ORDER MANAGER</span>
+    <span>Generated: ${escapeHTML(new Date().toLocaleString("en-IN"))}</span>
+  </div>
+
+</div>
+<script>
+  window.onload = function () {
+    setTimeout(function () { window.print(); }, 450);
+  };
+<\/script>
+</body>
+</html>`);
 
   printWindow.document.close();
 }
@@ -3487,16 +3734,26 @@ function normalizeDateValue(value) {
 function setupCalendarPickers() {
   ["orderDate", "deliveryDate", "dailyDate", "weekDate", "monthDate"].forEach(id => {
     const input = $(id);
-    if (!input) return;
+    if (!input || input.dataset.wogeCalendarReady === "1") return;
+
     input.type = id === "monthDate" ? "month" : "date";
     input.style.cursor = "pointer";
-    input.addEventListener("click", () => {
+    input.dataset.wogeCalendarReady = "1";
+
+    const openPicker = (event) => {
+      // Chrome/Edge expose showPicker() for the native calendar UI.
+      // Keep the native control as the fallback for other browsers.
       try {
-        if (typeof input.showPicker === "function") input.showPicker();
+        if (typeof input.showPicker === "function") {
+          event.preventDefault();
+          input.showPicker();
+        }
       } catch (e) {
-        // Native picker can still open normally on browsers without showPicker support.
+        // Browser will use the normal native date control.
       }
-    });
+    };
+
+    input.addEventListener("click", openPicker);
   });
 }
 
@@ -3515,6 +3772,9 @@ async function startApplication() {
   setupDropdowns();
 
   setupEvents();
+
+  // Enable the browser's real calendar popup on every date field.
+  setupCalendarPickers();
 
   addLogoutButton();
 
