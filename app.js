@@ -1067,7 +1067,6 @@ async function saveOrder(event) {
     total_amount: total,
     final_price: finalPrice,
     advance_paid: advance,
-    balance_due: calculateBalance(total, advance),
     payment_status: paymentStatus,
     order_status: $("orderStatus").value || "Created",
     delivery_date: $("deliveryDate").value || null,
