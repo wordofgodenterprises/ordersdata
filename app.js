@@ -1840,17 +1840,6 @@ function renderOrders() {
     );
 
 
-  const totals = calculateTotals(filtered);
-
-  if ($("ordersSummary")) {
-    $("ordersSummary").innerHTML = `
-      ${createCard("Orders", filtered.length)}
-      ${createCard("Sales", money(totals.total))}
-      ${createCard("Advance", money(totals.advance))}
-      ${createCard("Outstanding", money(totals.balance))}
-    `;
-  }
-
   $("ordersTable").innerHTML =
     createOrdersTable(
       filtered
