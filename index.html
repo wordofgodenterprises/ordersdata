@@ -140,11 +140,19 @@
 
         </div>
 
-        <button
-          class="gold-btn"
-          onclick="openOrder()">
-          + New Order
-        </button>
+        <div class="orders-actions">
+          <button
+            class="small-btn"
+            type="button"
+            onclick="printOrdersReport()">
+            🖨 Print / Save PDF
+          </button>
+          <button
+            class="gold-btn"
+            onclick="openOrder()">
+            + New Order
+          </button>
+        </div>
 
       </div>
 
@@ -478,96 +486,30 @@
 
 
 
-          <!-- PRODUCT -->
+          <!-- MULTIPLE PRODUCTS -->
 
-          <label>
+          <div class="order-items-section">
+            <div class="order-items-head">
+              <div>
+                <div class="order-items-title">Products in this Order</div>
+                <div class="price-help">Add one or more products. Quantity and discounted/given price are set separately for each product.</div>
+              </div>
+              <button type="button" class="small-btn" onclick="addOrderItem()">+ Add Another Product</button>
+            </div>
+            <div id="orderItems"></div>
 
-            Product
-
-            <select
-              id="product"
-              required>
-            </select>
-
-          </label>
-
-
-
-          <!-- QUANTITY -->
-
-          <label>
-
-            Quantity
-
-            <input
-              id="qty"
-              type="number"
-              min="1"
-              value="1"
-              required
-            >
-
-          </label>
-
-
-
-          <!-- PRODUCT PRICE -->
-
-          <label>
-
-            Product Price
-
-            <input
-              id="rate"
-              type="number"
-              min="0"
-              step="0.01"
-              readonly
-              required
-            >
-            <span class="price-help">Standard product price</span>
-
-          </label>
-
-
-
-          <!-- FINAL / GIVEN PRICE -->
-
-          <label>
-
-            Final Price
-
-            <input
-              id="finalPrice"
-              type="number"
-              min="0"
-              step="0.01"
-              required
-            >
-            <span class="price-help">Enter discounted/given price</span>
-
-          </label>
-
-
-
-          <!-- TOTAL -->
-
-          <label>
-
-            Total Amount
-
-            <input
-              id="total"
-              type="number"
-              min="0"
-              step="0.01"
-              readonly
-              required
-            >
-
-          </label>
-
-
+            <label class="order-total-field">
+              Total Amount
+              <input
+                id="total"
+                type="number"
+                min="0"
+                step="0.01"
+                readonly
+                required
+              >
+            </label>
+          </div>
 
           <!-- ADVANCE -->
 
@@ -753,7 +695,7 @@
 
 <!-- WOGE APPLICATION -->
 
-<script src="app.js?v=20260830-01"></script>
+<script src="app.js?v=20260901-02"></script>
 
 </body>
 </html>
