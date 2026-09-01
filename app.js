@@ -277,82 +277,63 @@ function calculateBalance(
 
 function databaseOrderToApp(row) {
 
+  let parsedItems = [];
+  try {
+    if (Array.isArray(row.items)) parsedItems = row.items;
+    else if (typeof row.items === "string" && row.items.trim()) parsedItems = JSON.parse(row.items);
+  } catch (error) {
+    parsedItems = [];
+  }
+
+  const legacyQty = Number(row.quantity || 1) || 1;
+  const legacyTotal = Number(row.total_amount || 0);
+  const legacyFinal = row.final_price !== null && row.final_price !== undefined
+    ? Number(row.final_price || 0)
+    : (legacyQty > 0 ? legacyTotal / legacyQty : legacyTotal);
+
+  if (!Array.isArray(parsedItems) || !parsedItems.length) {
+    parsedItems = [{
+      productId: row.product_id || null,
+      product: row.product_name || "",
+      qty: legacyQty,
+      rate: Number(row.rate || 0),
+      finalPrice: legacyFinal,
+      total: legacyTotal
+    }];
+  }
+
   return {
-
-    id:
-      row.id,
-
-    orderNo:
-      row.order_no,
-
-    date:
-      row.order_date,
-
-    customer:
-      row.customer_name,
-
-    mobile:
-      row.mobile || "",
-
-    product:
-      row.product_name,
-
-    productId:
-      row.product_id,
-
-    qty:
-      Number(row.quantity || 0),
-
-    rate:
-      Number(row.rate || 0),
-
-    total:
-      Number(row.total_amount || 0),
-
-    finalPrice:
-      row.final_price !== null &&
-      row.final_price !== undefined
-        ? Number(row.final_price || 0)
-        : (
-            Number(row.quantity || 0) > 0
-              ? Number(row.total_amount || 0) / Number(row.quantity || 1)
-              : Number(row.total_amount || 0)
-          ),
-
-    advance:
-      Number(row.advance_paid || 0),
-
-    balance:
-      Number(row.balance_due || 0),
-
-    paymentStatus:
-      row.payment_status,
-
-    orderStatus:
-      row.order_status,
-
-    deliveryDate:
-      row.delivery_date || "",
-
-    paymentMethod:
-      row.payment_method || "",
-
-    deliveryType:
-      row.delivery_type || "",
-
-    notes:
-      row.notes || "",
-
-    createdAt:
-      row.created_at,
-
-    updatedAt:
-      row.updated_at
-
+    id: row.id,
+    orderNo: row.order_no,
+    date: row.order_date,
+    customer: row.customer_name,
+    mobile: row.mobile || "",
+    product: row.product_name,
+    productId: row.product_id,
+    qty: legacyQty,
+    rate: Number(row.rate || 0),
+    total: legacyTotal,
+    finalPrice: legacyFinal,
+    items: parsedItems.map(item => ({
+      productId: item.productId || null,
+      product: item.product || item.productName || "",
+      qty: Math.max(1, Number(item.qty || item.quantity || 1) || 1),
+      rate: Math.max(0, Number(item.rate || 0) || 0),
+      finalPrice: Math.max(0, Number(item.finalPrice ?? item.final_price ?? 0) || 0),
+      total: Math.max(0, Number(item.total ?? 0) || 0)
+    })),
+    advance: Number(row.advance_paid || 0),
+    balance: Number(row.balance_due || 0),
+    paymentStatus: row.payment_status,
+    orderStatus: row.order_status,
+    deliveryDate: row.delivery_date || "",
+    paymentMethod: row.payment_method || "",
+    deliveryType: row.delivery_type || "",
+    notes: row.notes || "",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
   };
-
 }
-
 
 /* =========================================================
    DATABASE → PRODUCT FORMAT
@@ -1028,7 +1009,6 @@ async function loadOrders() {
    ========================================================= */
 
 async function saveOrder(event) {
-
   event.preventDefault();
 
   if (!currentUser) {
@@ -1037,10 +1017,14 @@ async function saveOrder(event) {
   }
 
   const editId = $("editId") ? $("editId").value : "";
-  const qty = Math.max(1, Number($("qty")?.value) || 1);
-  const productPrice = Number($("rate")?.value) || 0;
-  const finalPrice = Math.max(0, Number($("finalPrice")?.value) || 0);
-  const total = finalPrice * qty;
+  const items = collectOrderItems();
+
+  if (!items.length) {
+    alert("Please add at least one product.");
+    return;
+  }
+
+  const total = items.reduce((sum, item) => sum + (item.finalPrice * item.qty), 0);
   const advance = Number($("advance")?.value) || 0;
 
   if (advance > total && total > 0) {
@@ -1052,20 +1036,23 @@ async function saveOrder(event) {
   let paymentStatus = $("paymentStatus") ? $("paymentStatus").value : "Unpaid";
   paymentStatus = calculatePaymentStatus(total, advance, paymentStatus);
 
-  const productName = $("product")?.value || "";
-  const selectedProduct = products.find(product => product.name === productName);
+  const firstItem = items[0];
+  const productNames = items.map(item => item.product).filter(Boolean);
+  const productName = productNames.length === 1 ? productNames[0] : productNames.join(" + ");
+  const standardTotal = items.reduce((sum, item) => sum + (item.rate * item.qty), 0);
 
   const payload = {
     order_no: $("orderNo").value,
     order_date: $("orderDate").value || today(),
     customer_name: $("customer").value.trim(),
     mobile: $("mobile").value.trim() || null,
-    product_id: selectedProduct ? selectedProduct.id : null,
+    product_id: firstItem.productId || null,
     product_name: productName,
-    quantity: qty,
-    rate: productPrice,
+    quantity: items.reduce((sum, item) => sum + item.qty, 0),
+    rate: standardTotal,
     total_amount: total,
-    final_price: finalPrice,
+    final_price: firstItem.finalPrice,
+    items: items,
     advance_paid: advance,
     payment_status: paymentStatus,
     order_status: $("orderStatus").value || "Created",
@@ -1162,29 +1149,13 @@ async function deleteOrder(id) {
    ========================================================= */
 
 function populateProductDropdown() {
-
-  if (!$("product")) return;
-
-  const existingNames = new Set(products.map(product => product.name));
-  const catalog = Object.keys(DEFAULT_PRODUCT_PRICES).map(name => ({
-    id: "default-" + name,
-    name,
-    active: true,
-    price: getProductPrice(name)
-  }));
-
-  const allProducts = products.concat(
-    catalog.filter(product => !existingNames.has(product.name))
-  );
-
-  $("product").innerHTML = allProducts
-    .filter(product => product.active)
-    .map(product => {
-      const price = getProductPrice(product.name);
-      return `<option value="${escapeHTML(product.name)}" data-price="${price}">${escapeHTML(product.name)} — ${money(price)}</option>`;
-    })
-    .join("");
-
+  if ($('orderItems')) {
+    const current = collectOrderItems();
+    renderOrderItems(current.length ? current : undefined);
+    return;
+  }
+  if (!$('product')) return;
+  $('product').innerHTML = productOptionsHTML($('product').value);
   setRateFromSelectedProduct();
 }
 
@@ -1390,273 +1361,57 @@ function openOrder(id = null) {
    ========================================================= */
 
 function resetOrderForm() {
+  if (!$('orderForm')) return;
 
-  if (!$("orderForm")) {
+  $('orderForm').reset();
+  if ($('editId')) $('editId').value = '';
+  if ($('orderNo')) $('orderNo').value = generateOrderNumber();
+  if ($('orderDate')) $('orderDate').value = today();
+  if ($('advance')) $('advance').value = 0;
+  if ($('paymentStatus')) $('paymentStatus').value = 'Unpaid';
+  if ($('orderStatus')) $('orderStatus').value = 'Created';
+  if ($('paymentMethod')) $('paymentMethod').value = 'Cash';
+  if ($('deliveryType')) $('deliveryType').value = 'Pickup';
+  if ($('deliveryDate')) $('deliveryDate').value = '';
+  if ($('notes')) $('notes').value = '';
 
-    return;
-
-  }
-
-
-  $("orderForm").reset();
-
-
-  if ($("editId")) {
-
-    $("editId").value = "";
-
-  }
-
-
-  if ($("orderNo")) {
-
-    $("orderNo").value =
-      generateOrderNumber();
-
-  }
-
-
-  if ($("orderDate")) {
-
-    $("orderDate").value =
-      today();
-
-  }
-
-
-  if ($("qty")) {
-
-    $("qty").value = 1;
-
-  }
-
-
-  if ($("rate")) {
-
-    $("rate").value = 0;
-
-  }
-
-
-  if ($("finalPrice")) {
-
-    $("finalPrice").value = 0;
-
-  }
-
-
-  if ($("total")) {
-
-    $("total").value = 0;
-
-  }
-
-
-  if ($("advance")) {
-
-    $("advance").value = 0;
-
-  }
-
-
-  if ($("paymentStatus")) {
-
-    $("paymentStatus").value =
-      "Unpaid";
-
-  }
-
-
-  if ($("orderStatus")) {
-
-    $("orderStatus").value =
-      "Created";
-
-  }
-
-
-  if ($("paymentMethod")) {
-
-    $("paymentMethod").value =
-      "Cash";
-
-  }
-
-
-  if ($("deliveryType")) {
-
-    $("deliveryType").value =
-      "Pickup";
-
-  }
-
-
-  if ($("deliveryDate")) {
-
-    $("deliveryDate").value = "";
-
-  }
-
-
-  if ($("notes")) {
-
-    $("notes").value = "";
-
-  }
-
-  // Reset first, then apply the selected product's catalog price.
-  // This prevents the product dropdown from being reset while the
-  // Product Price / Final Price fields remain at ₹0.
-  setRateFromSelectedProduct();
-
+  renderOrderItems([{ product: getDefaultProductName(), qty: 1, rate: getProductPrice(getDefaultProductName()), finalPrice: getProductPrice(getDefaultProductName()) }]);
   updatePaymentFields();
-
 }
-
 
 /* =========================================================
    FILL EDIT FORM
    ========================================================= */
 
 function fillOrderForm(order) {
-
-  if ($("orderNo")) {
-
-    $("orderNo").value =
-      order.orderNo || "";
-
-  }
-
-
-  if ($("orderDate")) {
-
-    $("orderDate").value =
-      normalizeDateValue(order.date || today());
-
-  }
-
-
-  if ($("customer")) {
-
-    $("customer").value =
-      order.customer || "";
-
-  }
-
-
-  if ($("mobile")) {
-
-    $("mobile").value =
-      order.mobile || "";
-
-  }
-
-
-  if ($("product")) {
-
-    $("product").value =
-      order.product || "";
-
-  }
-
-
-  if ($("qty")) {
-
-    $("qty").value =
-      order.qty || 1;
-
-  }
-
-
-  if ($("rate")) {
-
-    $("rate").value =
-      order.rate || getProductPrice(order.product);
-
-  }
-
-
-  if ($("finalPrice")) {
-
-    const qty = Number(order.qty || 1) || 1;
-    const savedFinal = order.finalPrice ?? (Number(order.total || 0) / qty);
-    $("finalPrice").value = Number(savedFinal || 0).toFixed(2);
-
-  }
-
-
-  if ($("total")) {
-
-    $("total").value =
-      order.total || 0;
-
-  }
-
-
-  if ($("advance")) {
-
-    $("advance").value =
-      order.advance || 0;
-
-  }
-
-
-  if ($("paymentStatus")) {
-
-    $("paymentStatus").value =
-      order.paymentStatus ||
-      "Unpaid";
-
-  }
-
-
-  if ($("orderStatus")) {
-
-    $("orderStatus").value =
-      order.orderStatus ||
-      "Created";
-
-  }
-
-
-  if ($("deliveryDate")) {
-
-    $("deliveryDate").value =
-      normalizeDateValue(order.deliveryDate || "");
-
-  }
-
-
-  if ($("paymentMethod")) {
-
-    $("paymentMethod").value =
-      order.paymentMethod ||
-      "Cash";
-
-  }
-
-
-  if ($("deliveryType")) {
-
-    $("deliveryType").value =
-      order.deliveryType ||
-      "Pickup";
-
-  }
-
-
-  if ($("notes")) {
-
-    $("notes").value =
-      order.notes || "";
-
-  }
-
+  if ($('orderNo')) $('orderNo').value = order.orderNo || '';
+  if ($('orderDate')) $('orderDate').value = normalizeDateValue(order.date || today());
+  if ($('customer')) $('customer').value = order.customer || '';
+  if ($('mobile')) $('mobile').value = order.mobile || '';
+
+  const items = Array.isArray(order.items) && order.items.length
+    ? order.items
+    : [{
+        product: order.product || getDefaultProductName(),
+        productId: order.productId || null,
+        qty: order.qty || 1,
+        rate: order.rate || getProductPrice(order.product),
+        finalPrice: order.finalPrice ?? (Number(order.total || 0) / Math.max(1, Number(order.qty || 1))),
+        total: order.total || 0
+      }];
+
+  renderOrderItems(items);
+
+  if ($('advance')) $('advance').value = order.advance || 0;
+  if ($('paymentStatus')) $('paymentStatus').value = order.paymentStatus || 'Unpaid';
+  if ($('orderStatus')) $('orderStatus').value = order.orderStatus || 'Created';
+  if ($('deliveryDate')) $('deliveryDate').value = normalizeDateValue(order.deliveryDate || '');
+  if ($('paymentMethod')) $('paymentMethod').value = order.paymentMethod || 'Cash';
+  if ($('deliveryType')) $('deliveryType').value = order.deliveryType || 'Pickup';
+  if ($('notes')) $('notes').value = order.notes || '';
 
   updatePaymentFields();
-
 }
-
 
 /* =========================================================
    CLOSE MODAL
@@ -1676,34 +1431,171 @@ function closeModal() {
 
 
 /* =========================================================
+   MULTI-PRODUCT ORDER ITEMS
+   ========================================================= */
+
+function getAllCatalogProducts() {
+  const existingNames = new Set(products.map(product => product.name));
+  const catalog = Object.keys(DEFAULT_PRODUCT_PRICES).map(name => ({
+    id: 'default-' + name,
+    name,
+    active: true,
+    price: getProductPrice(name)
+  }));
+  return products.concat(catalog.filter(product => !existingNames.has(product.name)));
+}
+
+function getDefaultProductName() {
+  const catalog = getAllCatalogProducts().filter(product => product.active);
+  return catalog.length ? catalog[0].name : '';
+}
+
+function productOptionsHTML(selectedName) {
+  return getAllCatalogProducts()
+    .filter(product => product.active)
+    .map(product => {
+      const selected = product.name === selectedName ? ' selected' : '';
+      const price = getProductPrice(product.name);
+      return `<option value="${escapeHTML(product.name)}" data-product-id="${escapeHTML(product.id)}" data-price="${price}"${selected}>${escapeHTML(product.name)} — ${money(price)}</option>`;
+    }).join('');
+}
+
+function renderOrderItems(items) {
+  const container = $('orderItems');
+  if (!container) return;
+
+  const source = Array.isArray(items) && items.length ? items : [{ product: getDefaultProductName(), qty: 1 }];
+
+  container.innerHTML = source.map((item, index) => {
+    const product = item.product || item.productName || getDefaultProductName();
+    const rate = Number(item.rate ?? getProductPrice(product)) || 0;
+    const finalPrice = Number(item.finalPrice ?? item.final_price ?? rate) || 0;
+    const qty = Math.max(1, Number(item.qty ?? item.quantity ?? 1) || 1);
+    const lineTotal = finalPrice * qty;
+    return `
+      <div class="order-item" data-index="${index}">
+        <div class="order-item-grid">
+          <label class="order-item-product">
+            Product
+            <select class="item-product" data-index="${index}" onchange="orderItemProductChanged(this)" required>
+              ${productOptionsHTML(product)}
+            </select>
+          </label>
+          <label>
+            Quantity
+            <input class="item-qty" data-index="${index}" type="number" min="1" step="1" value="${qty}" oninput="recalculateOrderItems()" required>
+          </label>
+          <label>
+            Product Price
+            <input class="item-rate" data-index="${index}" type="number" min="0" step="0.01" value="${rate.toFixed(2)}" readonly>
+            <span class="price-help">Standard price</span>
+          </label>
+          <label>
+            Final Price
+            <input class="item-final" data-index="${index}" type="number" min="0" step="0.01" value="${finalPrice.toFixed(2)}" oninput="recalculateOrderItems()" required>
+            <span class="price-help">Given/discounted price per item</span>
+          </label>
+          <div class="order-item-total">
+            <span>Line Total</span>
+            <strong class="item-line-total">${money(lineTotal)}</strong>
+          </div>
+          <button type="button" class="remove-item-btn" onclick="removeOrderItem(${index})" ${source.length === 1 ? 'disabled' : ''}>Remove</button>
+        </div>
+      </div>`;
+  }).join('');
+
+  recalculateOrderItems();
+}
+
+function collectOrderItems() {
+  const container = $('orderItems');
+  if (!container) return [];
+
+  return [...container.querySelectorAll('.order-item')].map(row => {
+    const select = row.querySelector('.item-product');
+    const qty = Math.max(1, Number(row.querySelector('.item-qty')?.value) || 1);
+    const rate = Math.max(0, Number(row.querySelector('.item-rate')?.value) || 0);
+    const finalPrice = Math.max(0, Number(row.querySelector('.item-final')?.value) || 0);
+    return {
+      productId: select?.selectedOptions?.[0]?.dataset?.productId || null,
+      product: select?.value || '',
+      qty,
+      rate,
+      finalPrice,
+      total: finalPrice * qty
+    };
+  }).filter(item => item.product);
+}
+
+function recalculateOrderItems() {
+  const container = $('orderItems');
+  if (!container) return;
+
+  let total = 0;
+  container.querySelectorAll('.order-item').forEach(row => {
+    const qty = Math.max(1, Number(row.querySelector('.item-qty')?.value) || 1);
+    const finalPrice = Math.max(0, Number(row.querySelector('.item-final')?.value) || 0);
+    const lineTotal = qty * finalPrice;
+    total += lineTotal;
+    const line = row.querySelector('.item-line-total');
+    if (line) line.textContent = money(lineTotal);
+  });
+
+  if ($('total')) $('total').value = total.toFixed(2);
+  updatePaymentFields();
+}
+
+function orderItemProductChanged(select) {
+  const row = select.closest('.order-item');
+  if (!row) return;
+  const price = getProductPrice(select.value);
+  const rate = row.querySelector('.item-rate');
+  const final = row.querySelector('.item-final');
+  if (rate) rate.value = price.toFixed(2);
+  if (final) final.value = price.toFixed(2);
+  recalculateOrderItems();
+}
+
+function addOrderItem() {
+  const items = collectOrderItems();
+  const defaultName = getDefaultProductName();
+  items.push({ product: defaultName, qty: 1, rate: getProductPrice(defaultName), finalPrice: getProductPrice(defaultName) });
+  renderOrderItems(items);
+}
+
+function removeOrderItem(index) {
+  const items = collectOrderItems();
+  if (items.length <= 1) return;
+  items.splice(index, 1);
+  renderOrderItems(items);
+}
+
+/* =========================================================
    TOTAL CALCULATION
    ========================================================= */
 
 function autoCalculateTotal() {
-
-  const qty = Math.max(1, Number($("qty")?.value) || 1);
-  const finalPrice = Math.max(0, Number($("finalPrice")?.value) || 0);
-
-  if ($("total")) {
-    $("total").value = (qty * finalPrice).toFixed(2);
+  if ($('orderItems')) recalculateOrderItems();
+  else if ($('total')) {
+    const qty = Math.max(1, Number($('qty')?.value) || 1);
+    const finalPrice = Math.max(0, Number($('finalPrice')?.value) || 0);
+    $('total').value = (qty * finalPrice).toFixed(2);
   }
-
   updatePaymentFields();
 }
 
 function setRateFromSelectedProduct() {
-
-  if (!$("product")) return;
-
-  const name = $("product").value;
+  if ($('orderItems')) {
+    recalculateOrderItems();
+    return;
+  }
+  if (!$('product')) return;
+  const name = $('product').value;
   const price = getProductPrice(name);
-
-  if ($("rate")) $("rate").value = price;
-  if ($("finalPrice")) $("finalPrice").value = price;
-
+  if ($('rate')) $('rate').value = price;
+  if ($('finalPrice')) $('finalPrice').value = price;
   autoCalculateTotal();
 }
-
 
 /* =========================================================
    PAYMENT FIELD UPDATE
@@ -2370,143 +2262,32 @@ function createOrdersTable(
    ORDER ROW
    ========================================================= */
 
-function createOrderRow(
-  order
-) {
-
-  const balance =
-    order.balance ??
-    calculateBalance(
-      order.total,
-      order.advance
-    );
-
+function createOrderRow(order) {
+  const balance = order.balance ?? calculateBalance(order.total, order.advance);
+  const items = Array.isArray(order.items) && order.items.length ? order.items : [{ product: order.product, qty: order.qty, rate: order.rate, finalPrice: order.finalPrice, total: order.total }];
+  const productHTML = items.map(item => `${escapeHTML(item.product || '')}<br><small>Qty: ${escapeHTML(item.qty || 1)}</small>`).join('<hr style="border:0;border-top:1px solid #d8d5cc;margin:4px 0;">');
+  const rateHTML = items.map(item => money(item.rate)).join('<br>');
+  const finalHTML = items.map(item => `<strong>${money(item.finalPrice)}</strong>`).join('<br>');
 
   return `
-
     <tr>
-
+      <td><strong>${escapeHTML(order.orderNo)}</strong></td>
+      <td>${escapeHTML(formatDisplayDate(order.date))}</td>
+      <td><strong>${escapeHTML(order.customer)}</strong>${order.mobile ? `<br><small>${escapeHTML(order.mobile)}</small>` : ''}</td>
+      <td>${productHTML}</td>
+      <td>${rateHTML}</td>
+      <td>${finalHTML}</td>
+      <td><strong>${money(order.total)}</strong></td>
+      <td>${money(order.advance)}</td>
+      <td>${money(balance)}</td>
+      <td><span class="pill">${escapeHTML(order.paymentStatus || '')}</span></td>
+      <td><span class="pill">${escapeHTML(order.orderStatus || '')}</span></td>
       <td>
-
-        <strong>
-          ${escapeHTML(order.orderNo)}
-        </strong>
-
+        <button class="action" onclick="openOrder('${escapeHTML(order.id)}')">Edit</button>
+        <button class="action danger" onclick="deleteOrder('${escapeHTML(order.id)}')">Delete</button>
       </td>
-
-
-      <td>
-        ${escapeHTML(order.date)}
-      </td>
-
-
-      <td>
-
-        <strong>
-          ${escapeHTML(order.customer)}
-        </strong>
-
-        ${
-          order.mobile
-            ? `<br>
-               <small>
-                 ${escapeHTML(order.mobile)}
-               </small>`
-            : ""
-        }
-
-      </td>
-
-
-      <td>
-
-        ${escapeHTML(order.product)}
-
-        <br>
-
-        <small>
-          Qty: ${escapeHTML(order.qty)}
-        </small>
-
-      </td>
-
-
-      <td>
-        ${money(order.rate)}
-      </td>
-
-
-      <td>
-        ${money(order.finalPrice ?? (Number(order.qty || 1) > 0 ? Number(order.total || 0) / Number(order.qty || 1) : 0))}
-      </td>
-
-
-      <td>
-        ${money(order.total)}
-      </td>
-
-
-      <td>
-        ${money(order.advance)}
-      </td>
-
-
-      <td>
-        ${money(balance)}
-      </td>
-
-
-      <td>
-
-        <span class="pill">
-
-          ${escapeHTML(
-            order.paymentStatus
-          )}
-
-        </span>
-
-      </td>
-
-
-      <td>
-
-        <span class="pill">
-
-          ${escapeHTML(
-            order.orderStatus
-          )}
-
-        </span>
-
-      </td>
-
-
-      <td>
-
-        <button
-          class="action"
-          onclick="openOrder('${escapeHTML(order.id)}')"
-        >
-          Edit
-        </button>
-
-
-        <button
-          class="action danger"
-          onclick="deleteOrder('${escapeHTML(order.id)}')"
-        >
-          Delete
-        </button>
-
-      </td>
-
-    </tr>
-
-  `;
-
+    </tr>`;
 }
-
 
 /* =========================================================
    SUMMARY TABLE
@@ -2691,6 +2472,94 @@ function renderProducts() {
       </div>
     `;
   }).join("");
+}
+
+/* =========================================================
+   PRINT / SAVE ORDERS PDF
+   ========================================================= */
+
+function printOrdersReport() {
+  const search = $('search') ? $('search').value.trim().toLowerCase() : '';
+  const statusFilter = $('statusFilter') ? $('statusFilter').value : '';
+  const paymentFilter = $('paymentFilter') ? $('paymentFilter').value : '';
+
+  const filtered = orders.filter(order => {
+    const searchable = [order.orderNo, order.customer, order.mobile, order.product, ...(order.items || []).map(item => item.product)].join(' ').toLowerCase();
+    return (!search || searchable.includes(search)) &&
+      (!statusFilter || order.orderStatus === statusFilter) &&
+      (!paymentFilter || order.paymentStatus === paymentFilter);
+  });
+
+  const totals = calculateTotals(filtered);
+  const activeOrders = filtered.filter(order => !['Delivered', 'RTO'].includes(order.orderStatus));
+
+  const rows = filtered.map(order => {
+    const items = Array.isArray(order.items) && order.items.length ? order.items : [{ product: order.product, qty: order.qty, rate: order.rate, finalPrice: order.finalPrice, total: order.total }];
+    const productCell = items.map(item => `<div class="item-line"><strong>${escapeHTML(item.product || '')}</strong> <span class="muted">Qty: ${escapeHTML(item.qty || 1)}</span></div>`).join('');
+    const rateCell = items.map(item => `<div class="item-line">${money(item.rate)}</div>`).join('');
+    const finalCell = items.map(item => `<div class="item-line"><strong>${money(item.finalPrice)}</strong></div>`).join('');
+    const balance = order.balance ?? calculateBalance(order.total, order.advance);
+    return `<tr>
+      <td>${escapeHTML(order.orderNo)}</td>
+      <td>${escapeHTML(formatDisplayDate(order.date))}</td>
+      <td><strong>${escapeHTML(order.customer)}</strong>${order.mobile ? `<br><span class="muted">${escapeHTML(order.mobile)}</span>` : ''}</td>
+      <td>${productCell}</td>
+      <td class="right">${rateCell}</td>
+      <td class="right">${finalCell}</td>
+      <td class="right"><strong>${money(order.total)}</strong></td>
+      <td class="right">${money(order.advance)}</td>
+      <td class="right">${money(balance)}</td>
+      <td>${escapeHTML(order.paymentStatus || '')}</td>
+      <td>${escapeHTML(order.orderStatus || '')}</td>
+    </tr>`;
+  }).join('');
+
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) {
+    alert('Please allow pop-ups to print or save the Orders PDF.');
+    return;
+  }
+
+  printWindow.document.write(`<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8">
+<title>WOGE Order Manager - Orders Report</title>
+<style>
+@page { size: A4 landscape; margin: 9mm; }
+* { box-sizing:border-box; }
+html,body { margin:0;padding:0;background:#fff;color:#161616;font-family:Arial,Helvetica,sans-serif;font-size:9px; }
+.header { border-bottom:2px solid #c9a227;padding-bottom:8px;margin-bottom:10px; }
+.brand { font-size:10px;font-weight:800;letter-spacing:2.2px; }
+.title { margin:3px 0 2px;font-family:Georgia,"Times New Roman",serif;font-size:23px;font-weight:800; }
+.subtitle { color:#666;font-size:8px; }
+.summary { display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin:10px 0 11px; }
+.summary-card { border:1px solid #d4d0c7;background:#f8f7f3;padding:7px 8px; }
+.summary-label { color:#666;font-size:6.5px;font-weight:800;letter-spacing:.8px;text-transform:uppercase; }
+.summary-value { margin-top:3px;font-size:12px;font-weight:800; }
+table { width:100%;border-collapse:collapse;table-layout:fixed; }
+thead { display:table-header-group; }
+tr { page-break-inside:avoid; }
+th { background:#181818;color:#fff;border:1px solid #181818;padding:5px 4px;text-align:left;font-size:6.5px;font-weight:800;text-transform:uppercase;letter-spacing:.35px; }
+td { border:1px solid #d7d7d7;padding:5px 4px;vertical-align:top;font-size:7.5px;line-height:1.25;word-break:break-word; }
+tbody tr:nth-child(even) td { background:#f7f7f7; }
+.right{text-align:right}.muted{color:#777;font-size:6.5px}.item-line{margin:0 0 2px}.item-line:last-child{margin-bottom:0}
+th:nth-child(1){width:8%} th:nth-child(2){width:7%} th:nth-child(3){width:12%} th:nth-child(4){width:14%} th:nth-child(5){width:9%} th:nth-child(6){width:9%} th:nth-child(7){width:9%} th:nth-child(8){width:8%} th:nth-child(9){width:8%} th:nth-child(10){width:8%} th:nth-child(11){width:8%}
+.footer { display:flex;justify-content:space-between;gap:20px;margin-top:9px;padding-top:6px;border-top:1px solid #bbb;color:#666;font-size:6.5px; }
+@media print { body{-webkit-print-color-adjust:exact;print-color-adjust:exact;} }
+</style></head><body>
+<div class="header"><div class="brand">WORD OF GOD ENTERPRISES</div><div class="title">WOGE ORDER MANAGER</div><div class="subtitle">Orders Report &nbsp;•&nbsp; ${escapeHTML(formatDisplayDate(today()))}${search || statusFilter || paymentFilter ? ' &nbsp;•&nbsp; Filtered Orders' : ''}</div></div>
+<div class="summary">
+<div class="summary-card"><div class="summary-label">Orders</div><div class="summary-value">${filtered.length}</div></div>
+<div class="summary-card"><div class="summary-label">Sales</div><div class="summary-value">${money(totals.total)}</div></div>
+<div class="summary-card"><div class="summary-label">Advance Collected</div><div class="summary-value">${money(totals.advance)}</div></div>
+<div class="summary-card"><div class="summary-label">Outstanding</div><div class="summary-value">${money(totals.balance)}</div></div>
+<div class="summary-card"><div class="summary-label">Active Orders</div><div class="summary-value">${activeOrders.length}</div></div>
+</div>
+<table><thead><tr><th>Order</th><th>Date</th><th>Customer</th><th>Product</th><th>Product Price</th><th>Final Price</th><th>Total</th><th>Advance</th><th>Balance</th><th>Payment</th><th>Status</th></tr></thead>
+<tbody>${rows || '<tr><td colspan="11" style="text-align:center;padding:12px;">No orders found.</td></tr>'}</tbody></table>
+<div class="footer"><span>WORD OF GOD ENTERPRISES &nbsp;•&nbsp; WOGE ORDER MANAGER</span><span>Generated: ${escapeHTML(new Date().toLocaleString('en-IN'))}</span></div>
+</body></html>`);
+  printWindow.document.close();
+  printWindow.onload = function () { setTimeout(() => printWindow.print(), 450); };
 }
 
 /* =========================================================
@@ -3339,55 +3208,10 @@ function setupEvents() {
   }
 
 
-  /* Quantity */
+  /* Multi-product order items are wired through their inline handlers. */
 
-  if ($("qty")) {
-
-    $("qty")
-      .addEventListener(
-        "input",
-        autoCalculateTotal
-      );
-
-  }
-
-
-  /* Product */
-
-  if ($("product")) {
-
-    $("product")
-      .addEventListener(
-        "change",
-        setRateFromSelectedProduct
-      );
-
-  }
-
-
-  /* Final Price */
-
-  if ($("finalPrice")) {
-
-    $("finalPrice")
-      .addEventListener(
-        "input",
-        autoCalculateTotal
-      );
-
-  }
-
-
-  /* Total */
-
-  if ($("total")) {
-
-    $("total")
-      .addEventListener(
-        "input",
-        updatePaymentFields
-      );
-
+  if ($("orderItems")) {
+    renderOrderItems();
   }
 
 
@@ -3906,6 +3730,21 @@ window.autoCalculateTotal =
 
 window.printDashboardReport =
   printDashboardReport;
+
+window.printOrdersReport =
+  printOrdersReport;
+
+window.addOrderItem =
+  addOrderItem;
+
+window.removeOrderItem =
+  removeOrderItem;
+
+window.orderItemProductChanged =
+  orderItemProductChanged;
+
+window.recalculateOrderItems =
+  recalculateOrderItems;
 
 
 /* =========================================================
