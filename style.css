@@ -2084,22 +2084,34 @@ input[type="month"] {
   display: grid;
   grid-template-columns: minmax(220px, 2fr) 100px minmax(130px, 1fr) minmax(150px, 1fr) 140px 70px;
   gap: 9px;
-  align-items: end;
+  align-items: start;
 }
 
 .order-item-grid label {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: 24px 44px auto;
+  align-items: start;
   gap: 5px;
   color: #aaa;
   font-size: 8px;
   font-weight: 700;
+  line-height: 12px;
   text-transform: uppercase;
   letter-spacing: .7px;
 }
 
 .order-item-grid input,
-.order-item-grid select { width: 100%; }
+.order-item-grid select {
+  width: 100%;
+  height: 44px;
+  box-sizing: border-box;
+}
+
+.order-item-total,
+.remove-item-btn {
+  align-self: start;
+  margin-top: 29px;
+}
 
 .order-item-total {
   min-height: 44px;
@@ -2157,6 +2169,8 @@ input[type="month"] {
 @media (max-width: 1100px) {
   .order-item-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .order-item-product { grid-column: 1 / -1; }
+  .order-item-total,
+  .remove-item-btn { margin-top: 29px; }
   .order-item-total { min-height: 44px; }
 }
 
